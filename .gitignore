@@ -21,3 +21,7 @@ Thumbs.db
 
 # 追跡するもの
 !output/
+
+# PMTiles / GeoJSONL は大容量（PMTiles は外部ホスティング）
+output/*.pmtiles
+output/*.geojsonl
