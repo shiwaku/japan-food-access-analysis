@@ -1,0 +1,23 @@
+# 店舗レイヤ（外部リポジトリの成果物・再配布可否は元repoの記載に従う）
+input/
+
+# 自動取得データ（再生成可・大容量）
+data/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# 追跡するもの
+!output/
