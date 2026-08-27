@@ -3,7 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <title>食料品アクセスマップ — 全国125mメッシュ</title>
+  <!-- 農水省の「食料品アクセスマップ」とは別物。こちらは店舗までの距離だけを測るので
+       「食料品店アクセスマップ」とする（自動車利用も年齢も掛けていない）。 -->
+  <title>食料品店アクセスマップ — 全国125mメッシュ</title>
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4/dist/maplibre-gl.css" />
   <script src="https://unpkg.com/maplibre-gl@4/dist/maplibre-gl.js"></script>
   <script src="https://unpkg.com/pmtiles@3/dist/pmtiles.js"></script>
@@ -67,6 +69,7 @@
       border-radius: 10px; padding: 12px 16px;
       backdrop-filter: blur(6px);
       box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+      max-width: 320px;
     }
     #legend-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
     #legend h3 { font-size: 0.78rem; color: #666; font-weight: 500; }
@@ -181,6 +184,7 @@
         display: none;
         top: max(54px, calc(env(safe-area-inset-top) + 44px));
         right: 14px; left: auto; bottom: auto; padding: 10px 14px;
+        max-width: calc(100vw - 28px);
       }
       #legend.open { display: block; z-index: 30; }
       #legend-close { display: block; }
@@ -268,8 +272,8 @@
 <div id="map"></div>
 
 <div id="header">
-  <h1>食料品アクセスマップ</h1>
-  <p>全国125mメッシュ × 500mメッシュ内の店舗存否 | 令和2年国勢調査</p>
+  <h1>食料品店アクセスマップ</h1>
+  <p>全国125mメッシュ × 食料品店まで道路距離500m | 令和2年国勢調査</p>
 </div>
 
 <div id="search-panel">
@@ -286,11 +290,13 @@
     <h3>最寄りの食料品店まで500m</h3>
     <button id="legend-close" aria-label="閉じる">✕</button>
   </div>
-  <div class="legend-item"><div class="legend-dot" style="background:#34d399"></div>スーパーまで500m以内</div>
-  <div class="legend-item"><div class="legend-dot" style="background:#fb923c"></div>スーパーは遠いが他の店は500m以内</div>
-  <div class="legend-item"><div class="legend-dot" style="background:#f43f5e"></div>500m圏外（どの店も遠い）</div>
-  <div style="margin-top:8px;font-size:0.72rem;color:#999;line-height:1.4;">
-    距離は<b>道路ネットワーク上の徒歩距離</b>（3.6km/h・Dijkstra）。直線距離ではない。<br>
+  <div class="legend-item"><div class="legend-dot" style="background:#34d399"></div>スーパーが500m以内</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#fb923c"></div>スーパーは500m超、コンビニ等が500m以内</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#f43f5e"></div>どの店も500m超</div>
+  <div style="margin-top:8px;font-size:0.72rem;color:#999;line-height:1.45;">
+    <b style="color:#666">対象店舗</b>：食料品スーパー・百貨店・総合スーパー、コンビニ、
+    ドラッグストア、食肉・鮮魚・野菜果実小売業<br>
+    <b style="color:#666">距離</b>：道路ネットワーク上の徒歩距離（3.6km/h・Dijkstra）。直線距離ではない<br>
     ※ 条件は距離だけ。自動車の利用可否は掛けていないので「アクセス困難人口」ではない。
   </div>
 </div>
@@ -304,9 +310,9 @@
     <h3>全国集計（令和2年国勢調査・65歳以上）</h3>
     <button id="stats-close" aria-label="閉じる">✕</button>
   </div>
-  <div class="stat-row">スーパーまで500m以内 <span id="stat-sm"></span></div>
-  <div class="stat-row">他の店だけ500m以内 <span id="stat-cv"></span></div>
-  <div class="stat-row stat-out">500m圏外 <span id="stat-out"></span></div>
+  <div class="stat-row">スーパーが500m以内 <span id="stat-sm"></span></div>
+  <div class="stat-row">コンビニ等だけ500m以内 <span id="stat-cv"></span></div>
+  <div class="stat-row stat-out">どの店も500m超 <span id="stat-out"></span></div>
   <div class="caveat">
     <b>これは「500m圏外」であって「アクセス困難」ではない。</b>
     農水省の食料品アクセス困難人口は「500m以上 <b>かつ</b> 自動車の利用が困難」な高齢者で、
@@ -319,8 +325,6 @@
       <dd>道路ネットワーク上の徒歩距離500m以内に対象店舗があるか<br>
           3.6km/h・Multi-source Dijkstra（到達不能は圏外）<br>
           直線距離でもメッシュ単位の存否でもない</dd>
-      <dt>対象店舗</dt>
-      <dd>食料品スーパー・百貨店・総合スーパー、コンビニ、<br>ドラッグストア、食肉・鮮魚・野菜果実小売業</dd>
       <dt>データ出典</dt>
       <dd>人口: 令和2年国勢調査 125mメッシュ（総務省統計局・e-Stat）<br>
           店舗: <a href="https://github.com/shiwaku/japan-food-store-master" target="_blank" rel="noopener">japan-food-store-master</a>
@@ -390,9 +394,9 @@ const STATS = {
   out: "1,368万人（38.7%）",
 };
 const CAT_LABEL = {
-  0: "スーパーまで500m以内",
-  1: "スーパーは遠いが他の店は500m以内",
-  2: "500m圏外",
+  0: "スーパーが500m以内",
+  1: "コンビニ等が500m以内（スーパーは500m超）",
+  2: "どの店も500m超",
 };
 const CAT_COLOR = { 0: "#34d399", 1: "#fb923c", 2: "#f43f5e" };
 
@@ -496,9 +500,9 @@ map.on("load", () => {
 
 // ── 住所検索 ──
 const CAT_INFO = {
-  0: { cls: "super", label: "スーパーあり 🟢", desc: "同じ500mメッシュ内にスーパーがあります。", color: "#34d399" },
-  1: { cls: "other", label: "コンビニ等のみ 🟠", desc: "スーパーは無いが、コンビニ・ドラッグストア・生鮮のいずれかがあります。", color: "#fb923c" },
-  2: { cls: "out",   label: "500m圏外 🔴", desc: "同じ500mメッシュ内に対象の食料品店がありません。", color: "#f43f5e" },
+  0: { cls: "super", label: "スーパーが500m以内 🟢", desc: "スーパーまで道路距離500m以内です。", color: "#34d399" },
+  1: { cls: "other", label: "コンビニ等が500m以内 🟠", desc: "スーパーまでは500m超ですが、コンビニ・ドラッグストア・生鮮のいずれかが道路距離500m以内にあります。", color: "#fb923c" },
+  2: { cls: "out",   label: "どの店も500m超 🔴", desc: "対象の食料品店がどれも道路距離500m以内にありません。", color: "#f43f5e" },
 };
 
 let searchMarker = null;

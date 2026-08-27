@@ -246,6 +246,11 @@ walk 3.6km/h = 60m/分、500m = 8.33分。到達不能は圏外に倒し、ア�
   （japan-food-store-master の CLAUDE.md 既知の落とし穴）。-125 は掛けているが踏襲しない。
 - PMTiles は `-Z4 -z13 --no-tile-size-limit --no-feature-limit --coalesce-densest-as-needed -P`
   で -125 と同じ。2,814,449 ポリゴンで約400MB。**gitignore なので公開時は外部ホスティング**に置く。
+- **地図の名前は「食料品店アクセスマップ」**。農水省の「食料品アクセスマップ」とは別物
+  （こちらは店舗までの距離だけを測る）。出典欄で農水省の製品名を書くときだけ元の名前を使う。
+- **`serve.py` は `ThreadingHTTPServer` でないと使い物にならない。** PMTiles は並列に大量の
+  Range リクエストを投げるうえブラウザが keep-alive で接続を掴むので、シングルスレッドだと
+  後続が全部ブロックされて地図が固まる。
 - ローカル確認は `python serve.py 8080` → http://localhost:8080/docs/
   （PMTiles は Range リクエストが要るので `python -m http.server` では不可）。
 
