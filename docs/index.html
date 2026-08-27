@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>食料品アクセスマップ — 全国125mメッシュ</title>
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4/dist/maplibre-gl.css" />
+  <script src="https://unpkg.com/maplibre-gl@4/dist/maplibre-gl.js"></script>
+  <script src="https://unpkg.com/pmtiles@3/dist/pmtiles.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: "Noto Sans JP", "Hiragino Kaku Gothic ProN", sans-serif; background: #f5f5f0; color: #1a1a1a; }
+
+    #map { width: 100vw; height: 100dvh; }
+
+    /* ── ヘッダー ── */
+    #header {
+      position: absolute; top: 0; left: 0; right: 0; z-index: 10;
+      background: linear-gradient(to bottom, rgba(245,245,240,0.95), rgba(245,245,240,0));
+      padding: 14px 20px 32px;
+      pointer-events: none;
+    }
+    #header h1 { font-size: 1.2rem; font-weight: 700; letter-spacing: 0.03em; color: #000; }
+    #header p  { font-size: 0.78rem; color: #333; margin-top: 2px; }
+
+    /* ── 検索パネル ── */
+    #search-panel {
+      position: absolute; top: 14px; right: 14px; z-index: 20;
+      background: rgba(255,255,252,0.94);
+      border: 1px solid rgba(0,0,0,0.1);
+      border-radius: 10px;
+      padding: 12px 14px;
+      width: 280px;
+      backdrop-filter: blur(8px);
+      box-shadow: 0 2px 12px rgba(0,0,0,0.12);
+    }
+    #search-panel h2 { font-size: 0.82rem; font-weight: 600; margin-bottom: 8px; color: #333; }
+    #search-row { display: flex; gap: 6px; }
+    #address-input {
+      flex: 1; padding: 7px 10px; border-radius: 6px;
+      border: 1px solid rgba(0,0,0,0.18);
+      background: #fff; color: #1a1a1a;
+      font-size: 0.82rem; outline: none;
+    }
+    #address-input::placeholder { color: #aaa; }
+    #search-btn {
+      padding: 7px 12px; border-radius: 6px; border: none;
+      background: #3b82f6; color: white; font-size: 0.82rem;
+      cursor: pointer; font-weight: 600; white-space: nowrap;
+    }
+    #search-btn:hover { background: #2563eb; }
+    #result-box {
+      margin-top: 10px; padding: 10px 12px; border-radius: 8px;
+      font-size: 0.8rem; display: none;
+    }
+    #result-box.super { background: rgba(52,211,153,0.12); border: 1px solid #34d399; }
+    #result-box.other { background: rgba(251,146,60,0.12); border: 1px solid #fb923c; }
+    #result-box.out   { background: rgba(244,63,94,0.10);  border: 1px solid #f43f5e; }
+    #result-box .cat-label  { font-size: 1rem; font-weight: 700; color: #1a1a1a; }
+    #result-box .cat-detail { margin-top: 4px; color: #555; line-height: 1.5; }
+
+    /* ── 凡例 ── */
+    #legend {
+      position: absolute; bottom: 46px; left: 14px; z-index: 20;
+      background: rgba(255,255,252,0.94);
+      border: 1px solid rgba(0,0,0,0.08);
+      border-radius: 10px; padding: 12px 16px;
+      backdrop-filter: blur(6px);
+      box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+    }
+    #legend-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    #legend h3 { font-size: 0.78rem; color: #666; font-weight: 500; }
+    #legend-close {
+      display: none;
+      background: none; border: none; cursor: pointer;
+      font-size: 0.9rem; color: #999; padding: 0 0 0 8px; line-height: 1;
+    }
+    .legend-item { display: flex; align-items: center; gap: 8px; margin: 5px 0; font-size: 0.82rem; color: #333; }
+    .legend-dot { width: 14px; height: 14px; border-radius: 2px; flex-shrink: 0; }
+
+    /* ── 2D/3D トグルボタン ── */
+    #view-toggle {
+      position: absolute;
+      top: 14px; right: 308px; z-index: 20;
+      background: rgba(255,255,252,0.94);
+      border: 1px solid rgba(0,0,0,0.1);
+      border-radius: 10px; padding: 8px 14px;
+      font-size: 0.82rem; font-weight: 600; color: #333;
+      cursor: pointer; backdrop-filter: blur(8px);
+      box-shadow: 0 2px 12px rgba(0,0,0,0.12);
+      white-space: nowrap;
+    }
+    #view-toggle:hover { background: rgba(240,240,235,0.97); }
+
+    /* 判定方式トグル（変種A ↔ 変種D）。2D/3D の左隣。 */
+    #mode-toggle {
+      position: absolute;
+      top: 14px; right: 372px; z-index: 20;
+      background: rgba(255,255,252,0.94);
+      border: 1px solid rgba(0,0,0,0.1);
+      border-radius: 10px; padding: 8px 14px;
+      font-size: 0.82rem; font-weight: 600; color: #333;
+      cursor: pointer; backdrop-filter: blur(8px);
+      box-shadow: 0 2px 12px rgba(0,0,0,0.12);
+      white-space: nowrap;
+    }
+    #mode-toggle:hover { background: rgba(240,240,235,0.97); }
+
+    /* ── 凡例・集計・現在地トグルボタン（スマホのみ表示） ── */
+    #legend-toggle, #stats-toggle, #geolocate-toggle { display: none; }
+
+    /* ── 統計バッジ ── */
+    /* 集計パネルはモバイルで overflow-y:auto になる。**内部スクロールを持つパネルに
+       backdrop-filter を掛けると実GPUで合成不具合（白化・欠け）が出る**ので、
+       ここだけ不透明背景にする（japan-food-store-master の CLAUDE.md 既知の落とし穴）。
+       -125 は backdrop-filter を掛けているが、そこは踏襲しない。 */
+    #stats {
+      position: absolute; bottom: 46px; right: 14px; z-index: 20;
+      background: rgb(255,255,252);
+      border: 1px solid rgba(0,0,0,0.08);
+      border-radius: 10px; padding: 12px 16px;
+      text-align: right;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+      max-width: 340px;
+    }
+    #stats-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+    #stats h3 { font-size: 0.78rem; color: #888; }
+    #stats-close {
+      display: block;
+      background: none; border: none; cursor: pointer;
+      font-size: 0.9rem; color: #999; padding: 0 0 0 8px; line-height: 1;
+    }
+    #stats-toggle.desktop-visible {
+      display: flex; align-items: center;
+      position: absolute;
+      bottom: 46px; right: 14px; z-index: 20;
+      background: rgba(255,255,252,0.94);
+      border: 1px solid rgba(0,0,0,0.1);
+      border-radius: 10px; padding: 8px 14px;
+      font-size: 0.82rem; font-weight: 600; color: #333;
+      cursor: pointer; backdrop-filter: blur(8px);
+      box-shadow: 0 2px 12px rgba(0,0,0,0.12);
+    }
+    .stat-row  { font-size: 0.84rem; color: #333; margin: 3px 0; }
+    .stat-row span { font-weight: 700; }
+    .stat-out { color: #c0392b; }
+    #assumptions {
+      margin-top: 10px; padding-top: 10px;
+      border-top: 1px solid rgba(0,0,0,0.08);
+      text-align: left;
+    }
+    #assumptions dl { font-size: 0.78rem; line-height: 1.5; }
+    #assumptions dt { font-weight: 600; color: #555; margin-top: 6px; }
+    #assumptions dt:first-child { margin-top: 0; }
+    #assumptions dd { color: #777; margin: 0; }
+    .caveat {
+      margin-top: 8px; padding: 8px 10px; border-radius: 6px;
+      background: rgba(244,63,94,0.07); border: 1px solid rgba(244,63,94,0.25);
+      font-size: 0.75rem; color: #7a2230; line-height: 1.5; text-align: left;
+    }
+
+    /* ── ローディング ── */
+    #loading {
+      position: absolute; inset: 0; z-index: 50;
+      background: #f5f5f0;
+      display: flex; align-items: center; justify-content: center;
+      flex-direction: column; gap: 12px;
+    }
+    #loading p { font-size: 0.9rem; color: #888; }
+    .spinner { width: 36px; height: 36px; border: 3px solid rgba(0,0,0,0.1);
+               border-top-color: #3b82f6; border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── MapLibre コントロール位置調整 ── */
+    .maplibregl-ctrl-top-left { top: 66px !important; }
+
+    /* ── スマホ対応 ── */
+    @media (max-width: 600px) {
+      #header { padding: max(10px, env(safe-area-inset-top)) 12px 24px; }
+      #header h1 { font-size: 1rem; }
+      .maplibregl-ctrl-top-left { display: none !important; }
+
+      #search-panel {
+        top: auto; bottom: 0; right: 0; left: 0;
+        width: 100%; border-radius: 14px 14px 0 0;
+        padding: 14px 16px max(20px, env(safe-area-inset-bottom));
+        box-shadow: 0 -2px 16px rgba(0,0,0,0.12);
+      }
+      /* iOS Safari: 16px未満だと入力時に自動ズームされるため16px固定 */
+      #address-input { font-size: 16px; padding: 11px 12px; }
+      #search-btn    { font-size: 16px; padding: 11px 16px; min-width: 60px; }
+      #result-box { max-height: 110px; overflow-y: auto; }
+
+      #legend {
+        display: none;
+        top: max(54px, calc(env(safe-area-inset-top) + 44px));
+        right: 14px; left: auto; bottom: auto; padding: 10px 14px;
+      }
+      #legend.open { display: block; z-index: 30; }
+      #legend-close { display: block; }
+      .legend-item { font-size: 0.78rem; margin: 4px 0; }
+      .legend-dot  { width: 11px; height: 11px; }
+
+      #legend-toggle, #stats-toggle, #view-toggle, #geolocate-toggle, #mode-toggle {
+        width: 52px; justify-content: center; text-align: center;
+        padding: 6px 0; box-sizing: border-box;
+      }
+      #legend-toggle {
+        display: flex; align-items: center;
+        position: absolute;
+        top: max(12px, env(safe-area-inset-top));
+        right: 14px; z-index: 20;
+        background: rgba(255,255,252,0.94);
+        border: 1px solid rgba(0,0,0,0.1);
+        border-radius: 8px;
+        font-size: 0.82rem; font-weight: 600; color: #333;
+        cursor: pointer; backdrop-filter: blur(6px);
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        line-height: 1.4;
+      }
+      #stats {
+        display: none;
+        top: max(54px, calc(env(safe-area-inset-top) + 44px));
+        left: 14px; right: auto; bottom: auto;
+        text-align: left; max-width: none;
+        max-height: calc(100dvh - 160px); overflow-y: auto;
+      }
+      #stats.open { display: block; }
+      #stats-close { display: block; }
+      #stats-toggle {
+        display: flex; align-items: center;
+        position: absolute;
+        top: max(52px, calc(env(safe-area-inset-top) + 42px));
+        right: 14px; z-index: 20;
+        background: rgba(255,255,252,0.94);
+        border: 1px solid rgba(0,0,0,0.1);
+        border-radius: 8px;
+        font-size: 0.82rem; font-weight: 600; color: #333;
+        cursor: pointer; backdrop-filter: blur(6px);
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        line-height: 1.4;
+      }
+      #view-toggle {
+        top: max(92px, calc(env(safe-area-inset-top) + 82px));
+        right: 14px; border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        font-size: 0.82rem;
+      }
+      #mode-toggle {
+        top: max(132px, calc(env(safe-area-inset-top) + 122px));
+        right: 14px; border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        font-size: 0.72rem;
+      }
+      #geolocate-toggle {
+        display: flex; align-items: center;
+        position: absolute;
+        top: max(172px, calc(env(safe-area-inset-top) + 162px));
+        right: 14px; z-index: 20;
+        background: rgba(255,255,252,0.94);
+        border: 1px solid rgba(0,0,0,0.1);
+        border-radius: 8px;
+        font-size: 1rem; cursor: pointer; backdrop-filter: blur(6px);
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        line-height: 1.4;
+      }
+    }
+
+    /* ── 横向き対応 ── */
+    @media (max-width: 900px) and (orientation: landscape) {
+      #header { display: none; }
+      .maplibregl-ctrl-top-left { top: 10px !important; }
+      #search-panel {
+        top: auto; bottom: 0; right: 0; left: 0;
+        width: 100%; border-radius: 10px 10px 0 0;
+        padding: 10px 16px max(8px, env(safe-area-inset-bottom));
+      }
+    }
+  </style>
+</head>
+<body>
+
+<div id="loading">
+  <div class="spinner"></div>
+  <p>地図を読み込んでいます…</p>
+</div>
+
+<div id="map"></div>
+
+<div id="header">
+  <h1>食料品アクセスマップ</h1>
+  <p>全国125mメッシュ × 500mメッシュ内の店舗存否 | 令和2年国勢調査</p>
+</div>
+
+<div id="search-panel">
+  <h2>あなたの自宅は？</h2>
+  <div id="search-row">
+    <input id="address-input" type="text" placeholder="住所・地名を入力（例：島根県雲南市）" />
+    <button id="search-btn">検索</button>
+  </div>
+  <div id="result-box"></div>
+</div>
+
+<div id="legend">
+  <div id="legend-header">
+    <h3>同じ500mメッシュ内の食料品店</h3>
+    <button id="legend-close" aria-label="閉じる">✕</button>
+  </div>
+  <div class="legend-item"><div class="legend-dot" style="background:#34d399"></div>スーパーがある</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#fb923c"></div>コンビニ・ドラッグストア・生鮮のみ</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#f43f5e"></div>500m圏外（どれも無い）</div>
+  <div id="mode-note" style="margin-top:8px;font-size:0.72rem;color:#999;line-height:1.4;">
+    同じ500mメッシュ内に店があるか（農水省の公表値を再現できる方式）
+  </div>
+  <div style="margin-top:6px;font-size:0.72rem;color:#999;line-height:1.4;">
+    ※ 右上のボタンで「道路距離」判定に切り替えられる。
+  </div>
+</div>
+<button id="legend-toggle">凡例</button>
+<button id="stats-toggle">集計</button>
+<button id="mode-toggle" title="判定方式を切り替える">メッシュ</button>
+<button id="view-toggle">3D</button>
+<button id="geolocate-toggle">📍</button>
+
+<div id="stats">
+  <div id="stats-header">
+    <h3>全国集計（令和2年国勢調査・65歳以上）</h3>
+    <button id="stats-close" aria-label="閉じる">✕</button>
+  </div>
+  <div class="stat-row">スーパーあり <span>948万人</span>（26.8%）</div>
+  <div class="stat-row">コンビニ等のみ <span>907万人</span>（25.7%）</div>
+  <div class="stat-row stat-out">500m圏外 <span>1,677万人</span>（47.5%）</div>
+  <div class="caveat">
+    <b>これは「500m圏外」であって「アクセス困難」ではない。</b>
+    農水省の食料品アクセス困難人口は「500m以上 <b>かつ</b> 自動車の利用が困難」な高齢者で、
+    公表値は全国904万人（65歳以上の25.6%）。自動車要因をメッシュ単位に割り当てる根拠がまだ無いため、
+    このマップは<b>距離条件だけ</b>を表示している。
+  </div>
+  <div id="assumptions">
+    <dl>
+      <dt>判定方法</dt>
+      <dd>その125mメッシュが属する500mメッシュに対象店舗があるか<br>直線500m円ではない（隣メッシュには救われない）</dd>
+      <dt>対象店舗</dt>
+      <dd>食料品スーパー・百貨店・総合スーパー、コンビニ、<br>ドラッグストア、食肉・鮮魚・野菜果実小売業</dd>
+      <dt>データ出典</dt>
+      <dd>人口: 令和2年国勢調査 125mメッシュ（総務省統計局・e-Stat）<br>
+          店舗: <a href="https://github.com/shiwaku/japan-food-store-master" target="_blank" rel="noopener">japan-food-store-master</a>
+          ATP基準＋許可⑪（122,249店）<br>
+          正解値: 農林水産政策研究所 食料品アクセスマップ 表5</dd>
+      <dt>妥当性</dt>
+      <dd>地方部（高齢者密度&lt;1,500人/km²・1,586市区町村）では公表値と整合するが、
+          <b>都市部では操作化そのものが破れている</b>（比&gt;1 が 74%）。
+          都市部の色は参考値として見ること。</dd>
+    </dl>
+  </div>
+</div>
+
+<script>
+// ── PMTiles URL（ローカル開発時は ../output/ を使用してCORSを回避） ──
+const PMTILES_URL = (location.hostname === "localhost" || location.hostname === "127.0.0.1")
+  ? "../output/food_access_125m.pmtiles"
+  : "https://shiworks2.xsrv.jp/pmtiles/maff-food-access/food_access_125m.pmtiles";
+
+// ── PMTiles プロトコル登録 ──
+const protocol = new pmtiles.Protocol();
+maplibregl.addProtocol("pmtiles", protocol.tile);
+
+const map = new maplibregl.Map({
+  container: "map",
+  style: "./pale.json",
+  center: [136.5, 36.5],
+  zoom: 5,
+  pitch: 0,
+  bearing: 0,
+  maxZoom: 16,
+  hash: true,
+});
+
+map.addControl(new maplibregl.NavigationControl(), "top-left");
+const geolocate = new maplibregl.GeolocateControl({
+  positionOptions: { enableHighAccuracy: true },
+  trackUserLocation: false,
+  showAccuracyCircle: false,
+});
+map.addControl(geolocate, "top-left");
+map.addControl(new maplibregl.ScaleControl({ maxWidth: 120, unit: "metric" }), "bottom-left");
+
+// ── 判定方式 ──
+// A = 同一500mメッシュ内の店舗存否（農水省の公表値を再現できる操作化）
+// D = 道路距離500m（Multi-source Dijkstra。japan-transit-desert-analysis-125 と同じ算出方法）
+// タイルには cat_code を持たせず out_a / out_d と sm から式で導くので、
+// 切り替えにタイルの作り直しは要らない。
+let mode = "A";
+const outKey = () => (mode === "A" ? "out_a" : "out_d");
+const catCodeExpr = () => ["case",
+  ["==", ["get", outKey()], 1], 2,
+  ["==", ["get", "sm"], 1], 0,
+  1
+];
+const MODE_LABEL = { A: "メッシュ", D: "道路距離" };
+const MODE_DESC = {
+  A: "同じ500mメッシュ内に店があるか（農水省の公表値を再現できる方式）",
+  D: "道路ネットワーク上の徒歩距離500m以内に店があるか（3.6km/h・Dijkstra）",
+};
+const CAT_LABEL = { 0: "スーパーあり", 1: "コンビニ・ドラッグストア・生鮮のみ", 2: "500m圏外" };
+const CAT_COLOR = { 0: "#34d399", 1: "#fb923c", 2: "#f43f5e" };
+
+const OPACITY_2D = ["interpolate", ["linear"], ["zoom"], 5, 0.9, 10, 0.75, 14, 0.6];
+const OPACITY_3D = 0.75;
+
+map.on("load", () => {
+  document.getElementById("loading").style.display = "none";
+
+  map.addSource("food", {
+    type: "vector",
+    url: `pmtiles://${PMTILES_URL}`,
+  });
+
+  const catColor = () => ["match", catCodeExpr(), 0, "#34d399", 1, "#fb923c", 2, "#f43f5e", "#888"];
+
+  map.addLayer({
+    id: "food-fill",
+    type: "fill-extrusion",
+    source: "food",
+    "source-layer": "food_access",
+    paint: {
+      "fill-extrusion-color": catColor(),
+      "fill-extrusion-opacity": OPACITY_2D,
+      "fill-extrusion-base": 0,
+      "fill-extrusion-height": 0
+    }
+  });
+
+  map.addLayer({
+    id: "food-outline",
+    type: "line",
+    source: "food",
+    "source-layer": "food_access",
+    minzoom: 10,
+    paint: {
+      "line-color": "rgba(0,0,0,0.15)",
+      "line-width": 0.3
+    }
+  });
+
+  // ── ポップアップ（ホバー＋クリック/タップ） ──
+  // closeOnClick: false にして手動管理。closeOnClick:true はMapLibre内部clickで即消えるため使わない
+  const popup = new maplibregl.Popup({ closeButton: true, closeOnClick: false, offset: 8 });
+  let pinned = false;
+  popup.on("close", () => { pinned = false; });
+
+  function catOf(p) {
+    if (Number(p[outKey()]) === 1) return 2;
+    if (Number(p.sm) === 1) return 0;
+    return 1;
+  }
+  // dmin は「最寄り店舗までの道路距離（分）」。3.6km/h なので 1分 = 60m。
+  function roadText(p) {
+    if (p.dmin === undefined || p.dmin === null) return "—";
+    const min = Number(p.dmin);
+    return `${Math.round(min * 60).toLocaleString()}m（${min.toFixed(1)}分）`;
+  }
+
+  function makePopupHTML(p) {
+    const code = catOf(p);
+    const kinds = [];
+    if (Number(p.sm)) kinds.push("スーパー");
+    if (Number(p.cv)) kinds.push("コンビニ");
+    if (Number(p.dg)) kinds.push("ドラッグストア");
+    if (Number(p.fr)) kinds.push("生鮮");
+    const pop = p.pop ? `${Number(p.pop).toLocaleString()}人` : "0人";
+    const p65 = p.p65 ? `${Number(p.p65).toLocaleString()}人` : "0人";
+    return `<div style="font-size:0.82rem;line-height:1.6;min-width:200px">
+      <div style="font-weight:700;color:${CAT_COLOR[code]};margin-bottom:4px">${CAT_LABEL[code]}</div>
+      <div>同じ500mメッシュの店：${kinds.length ? kinds.join("・") : "なし"}</div>
+      <div>最寄り店舗まで（道路距離）：${roadText(p)}</div>
+      <div>人口（125m四方）：${pop}</div>
+      <div>うち65歳以上：${p65}</div>
+      <div style="margin-top:4px;color:#999;font-size:0.72rem">
+        メッシュ判定：${Number(p.out_a) === 1 ? "圏外" : "圏内"} ／
+        道路距離判定：${Number(p.out_d) === 1 ? "圏外" : "圏内"} ／
+        直線500m：${Number(p.out_c) === 1 ? "圏外" : "圏内"}
+      </div>
+    </div>`;
+  }
+
+  // マップ上の空白タップ/クリックでポップアップを閉じる
+  map.on("click", (e) => {
+    if (!map.queryRenderedFeatures(e.point, { layers: ["food-fill"] }).length) {
+      popup.remove();
+    }
+  });
+
+  // PC: マウスホバー（pinned中は更新しない）
+  map.on("mousemove", "food-fill", (e) => {
+    map.getCanvas().style.cursor = "pointer";
+    if (!pinned) popup.setLngLat(e.lngLat).setHTML(makePopupHTML(e.features[0].properties)).addTo(map);
+  });
+  map.on("mouseleave", "food-fill", () => {
+    map.getCanvas().style.cursor = "";
+    if (!pinned) popup.remove();
+  });
+
+  // クリック/タップ（PC・スマホ共通）
+  map.on("click", "food-fill", (e) => {
+    pinned = true;
+    popup.setLngLat(e.lngLat).setHTML(makePopupHTML(e.features[0].properties)).addTo(map);
+  });
+});
+
+// ── 住所検索 ──
+const CAT_INFO = {
+  0: { cls: "super", label: "スーパーあり 🟢", desc: "同じ500mメッシュ内にスーパーがあります。", color: "#34d399" },
+  1: { cls: "other", label: "コンビニ等のみ 🟠", desc: "スーパーは無いが、コンビニ・ドラッグストア・生鮮のいずれかがあります。", color: "#fb923c" },
+  2: { cls: "out",   label: "500m圏外 🔴", desc: "同じ500mメッシュ内に対象の食料品店がありません。", color: "#f43f5e" },
+};
+
+let searchMarker = null;
+
+async function searchAddress() {
+  const q = document.getElementById("address-input").value.trim();
+  if (!q) return;
+  const btn = document.getElementById("search-btn");
+  btn.textContent = "…";
+  btn.disabled = true;
+
+  try {
+    // 国土地理院 地名検索API
+    const url = `https://msearch.gsi.go.jp/address-search/AddressSearch?q=${encodeURIComponent(q)}`;
+    const res = await fetch(url);
+    const data = await res.json();
+    if (!data.length) { showResult(null, "住所が見つかりませんでした"); return; }
+
+    const [lon, lat] = data[0].geometry.coordinates;
+    const display_name = data[0].properties.title;
+    const lngLat = [lon, lat];
+
+    // 既存マーカーを削除してピンを立てる（flyTo前に配置）
+    if (searchMarker) searchMarker.remove();
+    searchMarker = new maplibregl.Marker({ color: "#3b82f6" }).setLngLat(lngLat).addTo(map);
+
+    map.flyTo({ center: lngLat, zoom: 13, duration: 800 });
+
+    // ポイントのフィーチャを取得（flyTo完了 → タイル描画完了後）
+    map.once("moveend", () => {
+      map.once("idle", () => {
+        const pt = map.project(lngLat);
+        const features = map.queryRenderedFeatures(pt, { layers: ["food-fill"] });
+        if (features.length) {
+          const p = features[0].properties;
+          const code = Number(p[outKey()]) === 1 ? 2 : (Number(p.sm) === 1 ? 0 : 1);
+          const info = CAT_INFO[code];
+          const kinds = [];
+          if (Number(p.sm)) kinds.push("スーパー");
+          if (Number(p.cv)) kinds.push("コンビニ");
+          if (Number(p.dg)) kinds.push("ドラッグストア");
+          if (Number(p.fr)) kinds.push("生鮮");
+          const detail = `${info.desc}<br>同じ500mメッシュの店：${kinds.length ? kinds.join("・") : "なし"}`;
+          showResult(info, detail);
+          // 区分色に合わせてマーカーを更新
+          searchMarker.remove();
+          searchMarker = new maplibregl.Marker({ color: info.color }).setLngLat(lngLat).addTo(map);
+        } else {
+          showResult(null, `<b>${display_name.split(",")[0]}</b> 周辺にデータがありません（人口0メッシュ・海上・国外の可能性）`);
+        }
+      }); // idle
+    });
+  } catch (e) {
+    showResult(null, "検索エラーが発生しました");
+  } finally {
+    btn.textContent = "検索";
+    btn.disabled = false;
+  }
+}
+
+function showResult(info, detail) {
+  const box = document.getElementById("result-box");
+  box.style.display = "block";
+  box.className = info ? info.cls : "";
+  box.innerHTML = info
+    ? `<div class="cat-label">${info.label}</div><div class="cat-detail">${detail}</div>`
+    : `<div class="cat-detail">${detail}</div>`;
+}
+
+document.getElementById("search-btn").addEventListener("click", searchAddress);
+document.getElementById("address-input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") searchAddress();
+});
+
+// ── 凡例トグル（スマホ） ──
+const legendPanel  = document.getElementById("legend");
+const legendToggle = document.getElementById("legend-toggle");
+const legendClose  = document.getElementById("legend-close");
+
+legendToggle.addEventListener("click", () => {
+  const isOpen = legendPanel.classList.toggle("open");
+  legendToggle.textContent = isOpen ? "✕ 閉じる" : "凡例";
+});
+legendClose.addEventListener("click", () => {
+  legendPanel.classList.remove("open");
+  legendToggle.textContent = "凡例";
+});
+
+// ── 集計トグル（スマホ） ──
+const statsPanel  = document.getElementById("stats");
+const statsToggle = document.getElementById("stats-toggle");
+const statsClose  = document.getElementById("stats-close");
+
+statsToggle.addEventListener("click", () => {
+  if (window.innerWidth > 600) {
+    statsPanel.style.display = "";
+    statsToggle.classList.remove("desktop-visible");
+  } else {
+    const isOpen = statsPanel.classList.toggle("open");
+    statsToggle.textContent = isOpen ? "✕ 閉じる" : "集計";
+  }
+});
+statsClose.addEventListener("click", () => {
+  if (window.innerWidth > 600) {
+    statsPanel.style.display = "none";
+    statsToggle.classList.add("desktop-visible");
+  } else {
+    statsPanel.classList.remove("open");
+    statsToggle.textContent = "集計";
+  }
+});
+
+// ── 2D/3D トグル ──
+let is3D = false;
+
+document.getElementById("view-toggle").addEventListener("click", () => {
+  is3D = !is3D;
+  map.easeTo({ pitch: is3D ? 45 : 0, bearing: is3D ? -10 : 0, duration: 600 });
+  map.setPaintProperty(
+    "food-fill", "fill-extrusion-height",
+    is3D ? ["*", ["coalesce", ["get", "pop"], 0], 5] : 0
+  );
+  map.setPaintProperty("food-fill", "fill-extrusion-opacity", is3D ? OPACITY_3D : OPACITY_2D);
+  document.getElementById("view-toggle").textContent = is3D ? "2D" : "3D";
+});
+
+// ── 判定方式トグル（変種A ↔ 変種D） ──
+const modeToggle = document.getElementById("mode-toggle");
+modeToggle.addEventListener("click", () => {
+  mode = mode === "A" ? "D" : "A";
+  modeToggle.textContent = MODE_LABEL[mode];
+  modeToggle.title = MODE_DESC[mode];
+  map.setPaintProperty("food-fill", "fill-extrusion-color", catColor());
+  document.getElementById("mode-note").textContent = MODE_DESC[mode];
+});
+
+// ── 現在地トグル（スマホ用） ──
+document.getElementById("geolocate-toggle").addEventListener("click", () => {
+  geolocate.trigger();
+});
+</script>
+</body>
+</html>

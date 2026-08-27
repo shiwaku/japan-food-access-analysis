@@ -8,9 +8,11 @@
 > コンビニエンスストア、ドラッグストア
 > — 農水省 [食品アクセス（買物困難者等）問題の現状について](https://www.maff.go.jp/j/shokusan/eat/access_genjo.html)
 
-姉妹プロジェクト [japan-transit-desert-analysis](https://github.com/shiwaku/japan-transit-desert-analysis)
-（公共交通空白地域・国交省定義）の**農水省版**にあたる。施設レイヤを外から受け取り、
+姉妹プロジェクト [japan-transit-desert-analysis-125](https://github.com/shiwaku/japan-transit-desert-analysis-125)
+（公共交通空白地域・国交省定義・**125mメッシュ版**）の**農水省版**にあたる。施設レイヤを外から受け取り、
 メッシュ人口 × 距離判定で圏外人口を出し、省庁の公表値と突合する構造は同じ。
+**参照実装は125m版**（`-125` の付かない250m版ではない）。メッシュ人口 `2020_pop_census_mesh125.parquet`・
+GeoJSON→tippecanoe→PMTiles の流れ・ビューワの作りはあちらに合わせている。
 
 - **人口**: 国勢調査2020 125mメッシュ（e-Stat 統計GIS `T001225`、**appId 不要**）
 - **店舗**: [shiwaku/japan-food-store-master](https://github.com/shiwaku/japan-food-store-master) が生成する食料品店 POI マスター
@@ -113,6 +115,44 @@
 係数が **(a) 真の自動車利用困難率** と **(b) 店舗レイヤの穴** のどちらに由来するか分離できていない。
 公表資料は困難人口のみで、500m圏外人口と自動車要因を分けて出していない（表1〜5を確認済み）。
 → 「◯◯市の困難人口は△△人」とはまだ言えない。市区町村単位の店舗レイヤ由来誤差は概ね **±20〜30%**。
+
+## 地図で見る
+
+125mメッシュ 2,814,449件を PMTiles にして MapLibre で表示する。
+作りは姉妹リポジトリ **japan-transit-desert-analysis-125** に合わせてある
+（`docs/index.html` + `docs/pale.json` + `serve.py`、住所検索・2D/3D・ボトムシート）。
+
+| 区分 | メッシュ | 65歳以上 | 割合 |
+|---|---:|---:|---:|
+| 🟢 スーパーあり | 328,594 | 948万人 | 26.8% |
+| 🟠 コンビニ・ドラッグストア・生鮮のみ | 421,730 | 907万人 | 25.7% |
+| 🔴 **500m圏外** | 2,064,125 | **1,677万人** | **47.5%** |
+
+> **これは「500m圏外」であって「アクセス困難」ではない。** 農水省の困難人口は
+> 「500m以上 **かつ** 自動車の利用が困難」で公表値は全国904万人（25.6%）。
+> 自動車要因をメッシュに割り当てる根拠がまだ無いので、このマップは**距離条件だけ**を表示している。
+
+右上の「メッシュ／道路距離」ボタンで**判定方式を切り替えられる**。
+
+| 変種 | 操作化 | 圏外率（65歳以上） | 比>1 | r（地方部） |
+|---|---|---:|---:|---:|
+| **A** メッシュ | 同一500mメッシュ内の店舗存否 | 47.5% | **78件** | 0.199 |
+| **D** 道路距離 | 道路ネットワーク500m（Dijkstra） | 38.7% | 172件 | **0.258** |
+
+**用途で使い分ける。** 農水省の公表値を再現するなら **A**（比≤1 を地方部で満たす唯一の操作化）、
+どの地域が実際に厳しいかを順位づけるなら **D**（相関が最良）。
+道路距離の算出方法は姉妹リポジトリ **japan-transit-desert-analysis-125** を踏襲している
+（`scripts/04_road_distance.py`）。
+
+```bash
+python scripts/04_road_distance.py      # 道路距離（Multi-source Dijkstra・全国126秒）
+python scripts/03_export_pmtiles.py     # GeoJSONL 生成（DuckDB）＋ tippecanoe があれば実行
+bash output/make_pmtiles.sh             # tippecanoe を別途走らせる場合（WSL 等）
+python serve.py 8080                    # http://localhost:8080/docs/ （Range 対応が必要）
+```
+
+PMTiles（約300MB）と GeoJSONL は `.gitignore`。公開時は外部ホスティングに置く（`docs/index.html`
+の `PMTILES_URL` が localhost では `../output/` を、それ以外では外部URLを見る）。
 
 ## 使い方
 

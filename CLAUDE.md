@@ -11,9 +11,12 @@
 - 店舗レイヤの構築は [shiwaku/japan-food-store-master](https://github.com/shiwaku/japan-food-store-master)。
   2026-08-27 にそちらから検証器（`validate_access_difficulty.py` / `fetch_mesh_population.py`）を
   分離して発足。分離元の該当コミットは #7 / #16 / #20 / #27。
-- 姉妹プロジェクト [japan-transit-desert-analysis](https://github.com/shiwaku/japan-transit-desert-analysis)
+- 姉妹プロジェクト [japan-transit-desert-analysis-125](https://github.com/shiwaku/japan-transit-desert-analysis-125)
   （公共交通空白地域・国交省定義）と同じ構造の農水省版。あちらの `01_prepare_facilities.py` が
   担う施設供給を、こちらでは japan-food-store-master が担う。
+- **⚠ 参照するのは `-125`（125mメッシュ版）。`-125` の付かない250m版・`-100` 版ではない。**
+  3本は別リポジトリで中身が違う。メッシュ人口のファイル名・PMTiles 生成・ビューワは
+  すべて125m版に合わせること。
 
 ## リポジトリ構成
 
@@ -147,6 +150,47 @@ FOOD_STORES=input/food_store_master_atp_permit.parquet OUT_SUFFIX=_ATP許可基�
 - `FOOD_STORES` / `OUT_SUFFIX` で入出力を差し替えられる。**既存 CSV を実験で上書きしないこと**。
 - 外部データは全部スクリプトが自動取得・キャッシュ（`data/mesh/` `data/boundary/`
   `data/maff_2020_table05.xlsx`、いずれも .gitignore）。
+
+## 道路距離（変種D・scripts/04_road_distance.py）
+
+**算出方法は japan-transit-desert-analysis-125 の `02_calc_transit_desert.py` を踏襲する。**
+店舗を最近傍1道路ノードにスナップ → Multi-source Dijkstra → アクセスリンク L6 でメッシュ距離に変換。
+walk 3.6km/h = 60m/分、500m = 8.33分。到達不能は圏外に倒し、アクセスリンクが無いメッシュは落とす。
+
+- ネットワークはリポジトリ外。既定は
+  `ksj/ksj-roadcenterline-route-search/01_MakeNetwork/nationwide_walk/`（`NETWORK_DIR` で変更可）。
+  道路リンク 24,045,959 / ノード 18,614,424 / **アクセスリンク L6 23,740,720**。全国126秒。
+- **有効ノード 18,441,645 が -125 の記録値と一致するか**を毎回確認すること。ズレたら
+  ネットワークか成分フィルタが違う。
+- **駅の4象限スナップはしない**（線状障害物が店舗には無いため。-125 のバス停と同じ最近傍1ノード）。
+
+### ★ 変種の使い分け（実測で確定・issue #2 / #4）
+
+| 目的 | 変種 | 根拠 |
+|---|---|---|
+| 農水省の公表値を再現する | **A（メッシュ存否）** | 地方部で比≤1 を満たす唯一の操作化 |
+| どの地域が実際に厳しいか順位づける | **D（道路距離）** | 相関が最良（地方部 rA 0.199 → **rD 0.258**） |
+| — | C125（直線500m） | どちらでも劣る。使わない |
+
+**道路距離は都市部の破れを解消しない**（比>1 が 78→172件）。メッシュ存否のほうが厳しく
+（実効半径250m程度）、道路距離500mだと圏外が減って比が上がるため。**予測を外した実例**なので、
+「もっと厳しい／緩い」の向きは必ず実測で確かめること。
+
+## ビューワ（docs/）
+
+- 作りは **japan-transit-desert-analysis-125** の `docs/index.html` を踏襲。
+  住所検索（地理院API）・2D/3D・凡例/集計トグル・ボトムシート・iOS の16px対策まで同じ。
+- **区分はタイルに焼いていない**。`out_a` / `out_d` と `sm` から MapLibre の式で導く
+  （`catCodeExpr()`）ので、区分の定義を変えてもタイルを作り直さなくてよい。
+- **右上の「メッシュ／道路距離」ボタンで変種A ↔ 変種D を切り替えられる**。
+  色・ポップアップ・住所検索の判定がまとめて追従する。
+- **`#stats` だけ `backdrop-filter` を外してある。** モバイルで `overflow-y:auto` になり、
+  **内部スクロールを持つパネルに backdrop-filter を掛けると実GPUで合成不具合（白化・欠け）**が出る
+  （japan-food-store-master の CLAUDE.md 既知の落とし穴）。-125 は掛けているが踏襲しない。
+- PMTiles は `-Z4 -z13 --no-tile-size-limit --no-feature-limit --coalesce-densest-as-needed -P`
+  で -125 と同じ。2,814,449 ポリゴンで約300MB。**gitignore なので公開時は外部ホスティング**に置く。
+- ローカル確認は `python serve.py 8080` → http://localhost:8080/docs/
+  （PMTiles は Range リクエストが要るので `python -m http.server` では不可）。
 
 ## 落とし穴・環境メモ
 

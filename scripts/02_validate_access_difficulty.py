@@ -57,6 +57,12 @@ B と C は比が1を超える市区町村が出る（＝論理的に不整合�
   output/検証_アクセス困難人口_市区町村別{SUFFIX}.csv
   output/検証_アクセス困難人口_都道府県別{SUFFIX}.csv
   output/検証_アクセス困難人口_カテゴリ感度{SUFFIX}.csv
+  data/mesh500m_out{SUFFIX}.parquet   125mメッシュ1行の判定結果（集計前・WRITE_MESH=0 で抑止）
+
+**メッシュ単位で出せるのは「500m圏外か否か」であって「アクセス困難」ではない。**
+農水省の困難人口は「圏外 **かつ** 自動車利用困難」で、後者を外部データで固定できていない
+（係数 0.42〜0.57 が自動車要因と店舗の穴のどちらに由来するか分離できていない）。
+列名を out500m_A / out500m_C125 にしてあるのはそのため。
 """
 import os
 import sys
@@ -84,6 +90,11 @@ OUT_DIR = "output"
 OUT_CITY = f"{OUT_DIR}/検証_アクセス困難人口_市区町村別{SUFFIX}.csv"
 OUT_SENS = f"{OUT_DIR}/検証_アクセス困難人口_カテゴリ感度{SUFFIX}.csv"
 OUT_PREF = f"{OUT_DIR}/検証_アクセス困難人口_都道府県別{SUFFIX}.csv"
+# メッシュ単位の判定結果（125mメッシュ1行）。集計前の生の判定を残すための出力。
+# **「圏外」であって「アクセス困難」ではない**（困難＝圏外 かつ 自動車利用困難で、
+# 後者を外部データで固定できていない）。列名も out500m_* にしてある。
+OUT_MESH = os.environ.get("OUT_MESH", f"data/mesh500m_out{SUFFIX}.parquet")
+WRITE_MESH = os.environ.get("WRITE_MESH", "1") != "0"
 
 MAFF_TABLE05_URL = ("https://www.maff.go.jp/primaff/seika/fsc/faccess/attach/excel/"
                     "2020_table05.xlsx")
@@ -365,6 +376,29 @@ def main():
       from city where 農水省_困難人口 is not null
       group by 1 order by 圏外率_変種A desc""")
     con.execute(f"copy pref to '{OUT_PREF}' (header, delimiter ',')")
+
+    # ---- 6c. メッシュ単位の判定結果（集計前）----
+    if WRITE_MESH:
+        os.makedirs(os.path.dirname(OUT_MESH) or ".", exist_ok=True)
+        con.execute(f"""copy (
+          select c.mesh_code, substr(c.mesh_code,1,9) as mesh500_code,
+                 k.city_code, m.lat, m.lng, c.pop_total, c.pop_65over,
+                 c.has_sm, c.has_cv, c.has_dg, c.has_fr,
+                 -- 変種A: 同一500mメッシュに対象4業態のいずれも無ければ 500m圏外
+                 not (c.has_sm or c.has_cv or c.has_dg or c.has_fr) as out500m_A,
+                 -- 変種C125: 重心から実距離500m以内に1件も無ければ圏外（対照）
+                 not c.inC as out500m_C125
+          from cov c
+          join citymap k on c.city_code = k.raw_code
+          join read_parquet('{MESH}') m using (mesh_code)
+        ) to '{OUT_MESH}' (FORMAT parquet, COMPRESSION zstd)""")
+        n_out, p_out = con.execute(
+            "select count(*) filter (where not (has_sm or has_cv or has_dg or has_fr)), "
+            "sum(pop_65over) filter (where not (has_sm or has_cv or has_dg or has_fr)) "
+            "from cov").fetchone()
+        print(f"出力: {OUT_MESH}"
+              f"（125mメッシュ {n_mesh:,} 行 / うち変種A圏外 {n_out:,} メッシュ・"
+              f"65歳以上 {p_out:,} 人）")
     print(f"出力: {OUT_SENS}")
     print(f"出力: {OUT_CITY}")
     print(f"出力: {OUT_PREF}")
