@@ -303,22 +303,23 @@
 
 <div id="legend">
   <div id="legend-header">
-    <h3>同じ500mメッシュ内の食料品店</h3>
+    <h3>最寄りの食料品店まで500m</h3>
     <button id="legend-close" aria-label="閉じる">✕</button>
   </div>
   <div class="legend-item"><div class="legend-dot" style="background:#34d399"></div>スーパーがある</div>
   <div class="legend-item"><div class="legend-dot" style="background:#fb923c"></div>コンビニ・ドラッグストア・生鮮のみ</div>
   <div class="legend-item"><div class="legend-dot" style="background:#f43f5e"></div>500m圏外（どれも無い）</div>
   <div id="mode-note" style="margin-top:8px;font-size:0.72rem;color:#999;line-height:1.4;">
-    同じ500mメッシュ内に店があるか（農水省の公表値を再現できる方式）
+    道路ネットワーク上の徒歩距離500m以内に店があるか（3.6km/h・Dijkstra）
   </div>
   <div style="margin-top:6px;font-size:0.72rem;color:#999;line-height:1.4;">
-    ※ 右上のボタンで「道路距離」判定に切り替えられる。
+    ※ 右上のボタンで「メッシュ」判定（同じ500mメッシュ内の店舗存否）に切り替えられる。<br>
+    ※ 条件は距離だけ。自動車の利用可否は掛けていないので「アクセス困難人口」ではない。
   </div>
 </div>
 <button id="legend-toggle">凡例</button>
 <button id="stats-toggle">集計</button>
-<button id="mode-toggle" title="判定方式を切り替える">メッシュ</button>
+<button id="mode-toggle" title="判定方式を切り替える">道路距離</button>
 <button id="view-toggle">3D</button>
 <button id="geolocate-toggle">📍</button>
 
@@ -327,19 +328,19 @@
     <h3>全国集計（令和2年国勢調査・65歳以上）</h3>
     <button id="stats-close" aria-label="閉じる">✕</button>
   </div>
-  <div class="stat-row">スーパーあり <span>948万人</span>（26.8%）</div>
-  <div class="stat-row">コンビニ等のみ <span>907万人</span>（25.7%）</div>
-  <div class="stat-row stat-out">500m圏外 <span>1,677万人</span>（47.5%）</div>
+  <div class="stat-row">スーパーあり <span id="stat-sm"></span></div>
+  <div class="stat-row">コンビニ等のみ <span id="stat-cv"></span></div>
+  <div class="stat-row stat-out">500m圏外 <span id="stat-out"></span></div>
   <div class="caveat">
     <b>これは「500m圏外」であって「アクセス困難」ではない。</b>
     農水省の食料品アクセス困難人口は「500m以上 <b>かつ</b> 自動車の利用が困難」な高齢者で、
-    公表値は全国904万人（65歳以上の25.6%）。自動車要因をメッシュ単位に割り当てる根拠がまだ無いため、
+    公表値は全国904万人（65歳以上の25.6%）。自動車要因をメッシュ単位に割り当てる根拠が無いため、
     このマップは<b>距離条件だけ</b>を表示している。
   </div>
   <div id="assumptions">
     <dl>
       <dt>判定方法</dt>
-      <dd>その125mメッシュが属する500mメッシュに対象店舗があるか<br>直線500m円ではない（隣メッシュには救われない）</dd>
+      <dd id="assump-method"></dd>
       <dt>対象店舗</dt>
       <dd>食料品スーパー・百貨店・総合スーパー、コンビニ、<br>ドラッグストア、食肉・鮮魚・野菜果実小売業</dd>
       <dt>データ出典</dt>
@@ -347,9 +348,14 @@
           店舗: <a href="https://github.com/shiwaku/japan-food-store-master" target="_blank" rel="noopener">japan-food-store-master</a>
           ATP基準＋許可⑪（122,249店）<br>
           正解値: 農林水産政策研究所 食料品アクセスマップ 表5</dd>
+      <dt>条件</dt>
+      <dd><b>距離だけ</b>。自動車の利用可否も年齢も掛けていないので、
+          農水省の「アクセス困難人口」ではない。</dd>
       <dt>妥当性</dt>
-      <dd>地方部（高齢者密度&lt;1,500人/km²・1,586市区町村）では公表値と整合するが、
-          <b>都市部では操作化そのものが破れている</b>（比&gt;1 が 74%）。
+      <dd>地方部（高齢者密度&lt;1,500人/km²・1,586市区町村）では公表値と整合する
+          （比&gt;1 は 道路距離 3.2% / メッシュ 0.4%）。
+          <b>都市部では農水省の公表値を再現できない</b>（比&gt;1 が 道路距離 80% / メッシュ 47%）。
+          農水省の推計は確率版（メッシュ内位置の面積比）と判明しており、二値判定とは構造が違う。
           都市部の色は参考値として見ること。</dd>
     </dl>
   </div>
@@ -390,7 +396,8 @@ map.addControl(new maplibregl.ScaleControl({ maxWidth: 120, unit: "metric" }), "
 // D = 道路距離500m（Multi-source Dijkstra。japan-transit-desert-analysis-125 と同じ算出方法）
 // タイルには cat_code を持たせず out_a / out_d と sm から式で導くので、
 // 切り替えにタイルの作り直しは要らない。
-let mode = "A";
+// 既定は D。推計の条件は「店舗まで500m以上」だけで、実際に歩く距離である道路距離を主に据える。
+let mode = "D";
 const outKey = () => (mode === "A" ? "out_a" : "out_d");
 const catCodeExpr = () => ["case",
   ["==", ["get", outKey()], 1], 2,
@@ -401,6 +408,21 @@ const MODE_LABEL = { A: "メッシュ", D: "道路距離" };
 const MODE_DESC = {
   A: "同じ500mメッシュ内に店があるか（農水省の公表値を再現できる方式）",
   D: "道路ネットワーク上の徒歩距離500m以内に店があるか（3.6km/h・Dijkstra）",
+};
+// 集計パネルの数値。判定方式で中身が変わるので静的に書かずここに持つ。
+// 出典: 02_validate_access_difficulty.py（ATP⑪ 122,249店・47県・65歳以上 35,314,481人）。
+// 変種Dは道路距離が未定義のメッシュを圏外に倒した地図と同じ流儀で数えている。
+const MODE_STATS = {
+  A: {
+    sm: "948万人（26.8%）", cv: "907万人（25.7%）", out: "1,677万人（47.5%）",
+    method: "その125mメッシュが属する500mメッシュに対象店舗があるか<br>" +
+            "直線500m円ではない（隣メッシュには救われない）",
+  },
+  D: {
+    sm: "894万人（25.3%）", cv: "1,270万人（36.0%）", out: "1,368万人（38.7%）",
+    method: "道路ネットワーク上の徒歩距離500m以内に対象店舗があるか<br>" +
+            "3.6km/h・Multi-source Dijkstra（到達不能は圏外）",
+  },
 };
 const CAT_LABEL = { 0: "スーパーあり", 1: "コンビニ・ドラッグストア・生鮮のみ", 2: "500m圏外" };
 const CAT_COLOR = { 0: "#34d399", 1: "#fb923c", 2: "#f43f5e" };
@@ -639,14 +661,23 @@ document.getElementById("view-toggle").addEventListener("click", () => {
   document.getElementById("view-toggle").textContent = is3D ? "2D" : "3D";
 });
 
-// ── 判定方式トグル（変種A ↔ 変種D） ──
+// ── 判定方式トグル（変種D ↔ 変種A） ──
 const modeToggle = document.getElementById("mode-toggle");
+function applyModeStats() {
+  const s = MODE_STATS[mode];
+  document.getElementById("stat-sm").textContent = s.sm;
+  document.getElementById("stat-cv").textContent = s.cv;
+  document.getElementById("stat-out").textContent = s.out;
+  document.getElementById("assump-method").innerHTML = s.method;
+}
+applyModeStats();
 modeToggle.addEventListener("click", () => {
   mode = mode === "A" ? "D" : "A";
   modeToggle.textContent = MODE_LABEL[mode];
   modeToggle.title = MODE_DESC[mode];
   map.setPaintProperty("food-fill", "fill-extrusion-color", catColor());
   document.getElementById("mode-note").textContent = MODE_DESC[mode];
+  applyModeStats();
 });
 
 // ── 現在地トグル（スマホ用） ──
