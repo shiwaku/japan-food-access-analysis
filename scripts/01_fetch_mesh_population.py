@@ -35,6 +35,9 @@ e-Stat 統計GIS のダウンロードAPI（**appId 不要**）:
 1,017,247 メッシュが 65歳以上 '*'）ので、県計・市区町村計での目減りを必ず確認すること。
 
 使い方:
+  # 既定: 手元の統合済み parquet（input/2020_pop_census_mesh125.parquet）を畳む。県名は不要
+  python scripts/01_fetch_mesh_population.py
+  # ファイルが無いとき: e-Stat から1次メッシュ単位で取る（県名で範囲を指定）
   python scripts/01_fetch_mesh_population.py 高知県 島根県 宮城県
 出力:
   data/mesh/mesh125_pop.parquet
@@ -60,6 +63,21 @@ DL = ("https://www.e-stat.go.jp/gis/statmap-search/data"
 COL_TOTAL = f"{STATS_ID}001"
 COL_65OVER = f"{STATS_ID}019"
 COL_75OVER = f"{STATS_ID}022"
+
+# **既定は手元の統合済み parquet を読む**（姉妹リポジトリ japan-transit-desert-analysis-125 と
+# 同じ流儀・同じファイル名）。全国 2,820,831 メッシュが1本に入っているので県名の指定は不要で、
+# 絞り込みは検証器側が県境界で行う。
+# 置き場所: input/2020_pop_census_mesh125.parquet（.gitignore）。別の場所にあるなら
+#   MESH125_PARQUET=".../2020_pop_census_mesh125.parquet" python scripts/01_fetch_mesh_population.py
+# ファイルが無いときだけ e-Stat から1次メッシュ単位で取りに行く（全国だと151個・数十分かかる）。
+DEFAULT_LOCAL = "input/2020_pop_census_mesh125.parquet"
+LOCAL_PARQUET = os.environ.get("MESH125_PARQUET") or (
+    DEFAULT_LOCAL if os.path.exists(DEFAULT_LOCAL) else "")
+LOCAL_COLS = {
+    "pop_total": "人口（総数）",
+    "pop_65over": "６５歳以上人口　総数",
+    "pop_75over": "７５歳以上人口　総数",
+}
 
 
 def ensure_pref_geojson():
@@ -171,42 +189,37 @@ def mesh125_centroid(code):
     return lat + 1 / 1920, lng + 1 / 1280
 
 
-def main():
-    prefs = sys.argv[1:]
-    if not prefs:
-        sys.exit("使い方: python scripts/01_fetch_mesh_population.py 高知県 [島根県 ...]")
+def from_local(con):
+    """手元の統合済み parquet（全国）を畳んで OUT_PARQUET を作る。
 
-    con = duckdb.connect()
-    con.execute("INSTALL spatial; LOAD spatial;")
-    ensure_pref_geojson()
+    e-Stat から取り直す代わりの経路。秘匿 '*' は VARCHAR で入っているので try_cast で 0 に落とす
+    （ダウンロード経路の `to_int` と同じ扱い）。重心はダウンロード経路と同じ
+    `mesh125_centroid` で 11桁コードから計算し、geometry 列には触らない。
+    """
+    print(f"手元の統合済みデータを使う: {LOCAL_PARQUET}")
+    con.create_function("c_lat", lambda c: (mesh125_centroid(c) or (None, None))[0],
+                        ["VARCHAR"], "DOUBLE")
+    con.create_function("c_lng", lambda c: (mesh125_centroid(c) or (None, None))[1],
+                        ["VARCHAR"], "DOUBLE")
+    q = f"""select KEY_CODE as mesh_code, substr(KEY_CODE,1,9) as mesh500_code,
+                   c_lat(KEY_CODE) as lat, c_lng(KEY_CODE) as lng,
+                   coalesce(try_cast("{LOCAL_COLS['pop_total']}" as bigint),0) as pop_total,
+                   coalesce(try_cast("{LOCAL_COLS['pop_65over']}" as bigint),0) as pop_65over,
+                   coalesce(try_cast("{LOCAL_COLS['pop_75over']}" as bigint),0) as pop_75over
+            from read_parquet('{LOCAL_PARQUET}')
+            where length(KEY_CODE) = 11"""
+    con.execute(f"create table mesh as {q}")
+    bad = con.execute("select count(*) from mesh where lat is null or lng is null").fetchone()[0]
+    if bad:
+        print(f"  重心を計算できないコードを除外: {bad:,} 件")
+        con.execute("delete from mesh where lat is null or lng is null")
 
-    codes = mesh1_codes_for(con, prefs)
-    print(f"対象県 {prefs} を覆う1次メッシュ候補 {len(codes)} 個")
 
-    all_rows = []
-    for code in codes:
-        path = fetch_mesh1(code)
-        if not path:
-            continue
-        rows = parse_zip(path)
-        print(f"  {code}: {len(rows):,} メッシュ")
-        all_rows.extend(rows)
-
-    recs = []
-    skipped = 0
-    for mesh, tot, o65, o75 in all_rows:
-        c = mesh125_centroid(mesh)
-        if c is None:
-            skipped += 1
-            continue
-        recs.append((mesh, mesh[:9], c[0], c[1], tot, o65, o75))
-    print(f"125mメッシュ {len(recs):,} 件（桁数不一致で除外 {skipped:,}）")
-
-    os.makedirs(os.path.dirname(OUT_PARQUET), exist_ok=True)
-    con.execute("create table mesh(mesh_code varchar, mesh500_code varchar, "
-                "lat double, lng double, "
-                "pop_total bigint, pop_65over bigint, pop_75over bigint)")
-    con.executemany("insert into mesh values (?,?,?,?,?,?,?)", recs)
+def report_and_write(con):
+    """`mesh` テーブルを検算して OUT_PARQUET に書く。両経路で共通。"""
+    dup = con.execute("select count(*) - count(distinct mesh_code) from mesh").fetchone()[0]
+    if dup:
+        sys.exit(f"メッシュコードが重複している: {dup:,} 件（入力を確認）")
     n, n500, t, o, o75 = con.execute(
         "select count(*), count(distinct mesh500_code), sum(pop_total), "
         "sum(pop_65over), sum(pop_75over) from mesh").fetchone()
@@ -214,6 +227,55 @@ def main():
           f"総人口 {t:,} / 65歳以上 {o:,} / 75歳以上 {o75:,}")
     con.execute(f"copy mesh to '{OUT_PARQUET}' (FORMAT parquet)")
     print(f"出力: {OUT_PARQUET}")
+
+
+def main():
+    prefs = sys.argv[1:]
+    con = duckdb.connect()
+    con.execute("INSTALL spatial; LOAD spatial;")
+
+    if LOCAL_PARQUET:
+        if not os.path.exists(LOCAL_PARQUET):
+            sys.exit(f"MESH125_PARQUET が見つからない: {LOCAL_PARQUET}")
+        os.makedirs(os.path.dirname(OUT_PARQUET), exist_ok=True)
+        from_local(con)
+        report_and_write(con)
+        return
+
+    if not prefs:
+        sys.exit("使い方: python scripts/01_fetch_mesh_population.py 高知県 [島根県 ...]\n"
+                 "        （手元に全国の統合済み parquet があるなら MESH125_PARQUET=... で渡す）")
+
+    ensure_pref_geojson()
+
+    codes = mesh1_codes_for(con, prefs)
+    print(f"対象県 {prefs} を覆う1次メッシュ候補 {len(codes)} 個")
+
+    os.makedirs(os.path.dirname(OUT_PARQUET), exist_ok=True)
+    con.execute("create table mesh(mesh_code varchar, mesh500_code varchar, "
+                "lat double, lng double, "
+                "pop_total bigint, pop_65over bigint, pop_75over bigint)")
+
+    # 47県だと全国 2,820,831 メッシュになる。Python 側に全件溜めると数GB 積み上がるので、
+    # 1次メッシュごとに DuckDB へ流し込んでメモリを平らにする。
+    skipped = 0
+    for code in codes:
+        path = fetch_mesh1(code)
+        if not path:
+            continue
+        recs = []
+        for mesh, tot, o65, o75 in parse_zip(path):
+            c = mesh125_centroid(mesh)
+            if c is None:
+                skipped += 1
+                continue
+            recs.append((mesh, mesh[:9], c[0], c[1], tot, o65, o75))
+        con.executemany("insert into mesh values (?,?,?,?,?,?,?)", recs)
+        print(f"  {code}: {len(recs):,} メッシュ")
+    if skipped:
+        print(f"桁数不一致で除外 {skipped:,} 件")
+
+    report_and_write(con)
 
 
 if __name__ == "__main__":

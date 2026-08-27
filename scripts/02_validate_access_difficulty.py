@@ -55,6 +55,7 @@ B と C は比が1を超える市区町村が出る（＝論理的に不整合�
 出力
 ----
   output/検証_アクセス困難人口_市区町村別{SUFFIX}.csv
+  output/検証_アクセス困難人口_都道府県別{SUFFIX}.csv
   output/検証_アクセス困難人口_カテゴリ感度{SUFFIX}.csv
 """
 import os
@@ -82,6 +83,7 @@ MAFF_XLSX = "data/maff_2020_table05.xlsx"
 OUT_DIR = "output"
 OUT_CITY = f"{OUT_DIR}/検証_アクセス困難人口_市区町村別{SUFFIX}.csv"
 OUT_SENS = f"{OUT_DIR}/検証_アクセス困難人口_カテゴリ感度{SUFFIX}.csv"
+OUT_PREF = f"{OUT_DIR}/検証_アクセス困難人口_都道府県別{SUFFIX}.csv"
 
 MAFF_TABLE05_URL = ("https://www.maff.go.jp/primaff/seika/fsc/faccess/attach/excel/"
                     "2020_table05.xlsx")
@@ -187,33 +189,12 @@ def main():
     if not os.path.exists(MESH):
         sys.exit(f"メッシュ人口が無い: {MESH}（先に 01_fetch_mesh_population.py を実行）")
 
-    shps = [fetch_boundary(p) for p in prefs]
     con = duckdb.connect()
     con.execute("INSTALL spatial; LOAD spatial;")
     con.create_function("mesh500", mesh500_code, ["DOUBLE", "DOUBLE"], "VARCHAR")
 
-    # ---- 1. 小地域境界（ASCII のコード列のみ。DBF は CP932 で名称列は読めない）----
-    # geom::GEOMETRY で SRS 付き型を素の GEOMETRY に落とさないと rtree が作れない。
-    union_sql = " union all ".join(
-        f"select PREF || CITY as city_code, geom::GEOMETRY as geom from ST_Read('{s}')"
-        for s in shps)
-    con.execute(f"create table area as {union_sql}")
-    con.execute("create index area_ix on area using rtree(geom)")
-    print(f"小地域ポリゴン {con.execute('select count(*) from area').fetchone()[0]:,} 件")
-
-    # ---- 2. メッシュを対象県に限定し市区町村を割当（政令市の区は市に寄せる）----
-    con.execute(f"""create table mesh as
-      select m.mesh_code, m.mesh500_code, m.lat, m.lng, m.pop_total, m.pop_65over,
-             case when regexp_matches(a.city_code, '^\\d{{2}}1\\d{{2}}$')
-                  then substr(a.city_code,1,2) || '100' else a.city_code end as city_code
-      from read_parquet('{MESH}') m
-      join area a on ST_Contains(a.geom, ST_Point(m.lng, m.lat))""")
-    n_mesh, n500, pop65 = con.execute(
-        "select count(*), count(distinct mesh500_code), sum(pop_65over) from mesh").fetchone()
-    print(f"対象県内の125mメッシュ {n_mesh:,} 件（500mメッシュ換算 {n500:,}） / "
-          f"65歳以上 {pop65:,} 人")
-
-    # ---- 3. 店舗を500mメッシュへ割当（変種A・農水省再現）----
+    # ---- 1. 店舗側は県に依存しないので一度だけ作る ----
+    # 変種A: 店舗を500mメッシュへ割当（農水省再現）
     con.execute(f"""create table smesh as
       select mesh500(lat, lng) as mesh500_code, cat from read_parquet('{STORES}')""")
     con.execute("""create table hitA as
@@ -221,30 +202,71 @@ def main():
              bool_or(cat='supermarket') has_sm, bool_or(cat='convenience') has_cv,
              bool_or(cat='drugstore')   has_dg, bool_or(cat='fresh_food')  has_fr
       from smesh group by 1""")
-
-    # ---- 4. 対照: 125mメッシュ重心から実距離500m以内（変種C125）----
+    # 変種C125: 店舗を500mグリッドにバケット化（等距円筒近似。spheroid 関数は -nan を返す）
     con.execute(f"""create table sb as
       select floor(lng*111320*cos(radians(lat))/{THRESHOLD_M})::bigint cx,
              floor(lat*111320/{THRESHOLD_M})::bigint cy,
              lng*111320*cos(radians(lat)) x, lat*111320 y
       from read_parquet('{STORES}')""")
-    con.execute(f"""create table mkC as
-      select mesh_code, lng*111320*cos(radians(lat)) x, lat*111320 y,
-             floor(lng*111320*cos(radians(lat))/{THRESHOLD_M})::bigint + dx cx,
-             floor(lat*111320/{THRESHOLD_M})::bigint + dy cy
-      from mesh, (select unnest([-1,0,1]) dx) a, (select unnest([-1,0,1]) dy) b""")
-    con.execute(f"""create table hitC as
-      select distinct k.mesh_code from mkC k join sb s on k.cx=s.cx and k.cy=s.cy
-      where sqrt(power(k.x-s.x,2)+power(k.y-s.y,2)) <= {THRESHOLD_M}""")
+    n_store = con.execute("select count(*) from sb").fetchone()[0]
+    print(f"店舗レイヤ {STORES}: {n_store:,} 件")
 
-    con.execute("""create table cov as
-      select m.mesh_code, m.city_code, m.pop_65over, m.pop_total,
-             coalesce(a.has_sm,false) has_sm, coalesce(a.has_cv,false) has_cv,
-             coalesce(a.has_dg,false) has_dg, coalesce(a.has_fr,false) has_fr,
-             (c.mesh_code is not null) as inC
-      from mesh m
-      left join hitA a using (mesh500_code)
-      left join hitC c using (mesh_code)""")
+    # ---- 2. 県ごとに境界を載せ替えて cov を積む ----
+    # 47県の小地域境界を一度に載せると点in poly が重い。県単位に区切ればメモリが平らになり、
+    # メッシュ重心はちょうど1つの小地域にしか入らないので**結果は一括処理と同一**になる。
+    con.execute("""create table cov(mesh_code varchar, city_code varchar,
+                   pop_65over bigint, pop_total bigint,
+                   has_sm boolean, has_cv boolean, has_dg boolean, has_fr boolean,
+                   inC boolean)""")
+    for pref in prefs:
+        shp = fetch_boundary(pref)
+        con.execute("drop table if exists area")
+        con.execute("create table area as select PREF || CITY as city_code, "
+                    # geom::GEOMETRY で SRS 付き型を落とさないと rtree が作れない
+                    f"geom::GEOMETRY as geom from ST_Read('{shp}')")
+        con.execute("create index area_ix on area using rtree(geom)")
+        bx = con.execute("select min(ST_XMin(geom)), min(ST_YMin(geom)), "
+                         "max(ST_XMax(geom)), max(ST_YMax(geom)) from area").fetchone()
+
+        # 全国 2,820,831 メッシュを県ごとに全走査しないよう、先に県の bbox で絞る。
+        # city_code は境界データのまま（区レベル）で持ち、市への寄せは 表5 を正として後段で行う。
+        con.execute("drop table if exists mesh")
+        con.execute(f"""create table mesh as
+          select m.mesh_code, m.mesh500_code, m.lat, m.lng, m.pop_total, m.pop_65over,
+                 a.city_code
+          from (select * from read_parquet('{MESH}')
+                 where lng between {bx[0]} and {bx[2]}
+                   and lat between {bx[1]} and {bx[3]}) m
+          join area a on ST_Contains(a.geom, ST_Point(m.lng, m.lat))""")
+
+        con.execute("drop table if exists hitC")
+        con.execute(f"""create table hitC as
+          select distinct k.mesh_code from
+            (select mesh_code, lng*111320*cos(radians(lat)) x, lat*111320 y,
+                    floor(lng*111320*cos(radians(lat))/{THRESHOLD_M})::bigint + dx cx,
+                    floor(lat*111320/{THRESHOLD_M})::bigint + dy cy
+             from mesh, (select unnest([-1,0,1]) dx) a, (select unnest([-1,0,1]) dy) b) k
+          join sb s on k.cx=s.cx and k.cy=s.cy
+          where sqrt(power(k.x-s.x,2)+power(k.y-s.y,2)) <= {THRESHOLD_M}""")
+
+        con.execute("""insert into cov
+          select m.mesh_code, m.city_code, m.pop_65over, m.pop_total,
+                 coalesce(a.has_sm,false), coalesce(a.has_cv,false),
+                 coalesce(a.has_dg,false), coalesce(a.has_fr,false),
+                 (c.mesh_code is not null)
+          from mesh m
+          left join hitA a using (mesh500_code)
+          left join hitC c using (mesh_code)""")
+        n, p65 = con.execute(
+            "select count(*), coalesce(sum(pop_65over),0) from mesh").fetchone()
+        print(f"  {pref}: 125mメッシュ {n:>8,} 件 / 65歳以上 {p65:>9,} 人")
+
+    n_mesh, n500, pop65 = con.execute(
+        "select count(*), count(distinct mesh_code), sum(pop_65over) from cov").fetchone()
+    if n_mesh != n500:
+        # 小地域ポリゴンが重なっていると同じメッシュが二重計上される
+        print(f"⚠ メッシュが重複している: {n_mesh - n500:,} 件（小地域ポリゴンの重なりを確認）")
+    print(f"対象県内の125mメッシュ {n_mesh:,} 件 / 65歳以上 {pop65:,} 人")
 
     # ---- 5. カテゴリ感度（主指標 = 変種A）----
     print("\n=== カテゴリ感度: 500m圏外の65歳以上人口（変種A・対象県計）===")
@@ -278,6 +300,25 @@ def main():
     con.executemany("insert into maff values (?,?,?,?)", maff)
     print(f"\n農水省 表5（2020年）読み込み: {len(maff):,} 市区町村")
 
+    # ---- 6a. 区コードを 表5 の市コードへ寄せる（表5 を正とする）----
+    # 「XX1YY は XX100 に寄せる」は**間違い**。表5 は東京23区を個別に持つ（13101〜13123）ので
+    # 寄せてはいけないし、政令市も横浜(14100)・川崎(14130)・相模原(14150)のように市コードが
+    # 100 とは限らない（川崎区14131 を 14100 に寄せると横浜市に合算されてしまう）。
+    # 正しくは「表5 に無いコードだけを、同一県内で自分以下・末尾0 の最大の 表5 コードへ寄せる」。
+    con.execute("""create table citymap as
+      select c.city_code as raw_code,
+             coalesce(m.city_code,
+               (select max(x.city_code) from maff x
+                 where x.city_code <= c.city_code
+                   and substr(x.city_code,1,2) = substr(c.city_code,1,2)
+                   and right(x.city_code,1) = '0'),
+               c.city_code) as city_code
+      from (select distinct city_code from cov) c
+      left join maff m using (city_code)""")
+    moved = con.execute(
+        "select count(*) from citymap where raw_code <> city_code").fetchone()[0]
+    print(f"区コードを市へ寄せた: {moved} 件")
+
     con.execute("""create table city as
       select c.city_code as 市区町村コード, m.市区町村名,
              c.pop65 as 総65歳以上人口,
@@ -290,20 +331,49 @@ def main():
              round(m.maff_pop) as 農水省_困難人口,
              round((m.maff_rate/100) / nullif(c.outA / nullif(c.pop65,0), 0), 3) as 比_農水省÷変種A,
              round((m.maff_rate/100) / nullif(c.outC / nullif(c.pop65,0), 0), 3) as 比_農水省÷変種C125
-      from (select city_code, sum(pop_65over) pop65,
+      from (select k.city_code, sum(pop_65over) pop65,
                    sum(case when not (has_sm or has_cv or has_dg or has_fr) then pop_65over else 0 end) outA,
                    sum(case when not has_sm then pop_65over else 0 end) outA_sm,
                    sum(case when not inC then pop_65over else 0 end) outC
-            from cov group by 1) c
+            from cov join citymap k on cov.city_code = k.raw_code
+            group by 1) c
       left join maff m using (city_code)
       order by 圏外率_変種A desc""")
     con.execute(f"copy city to '{OUT_CITY}' (header, delimiter ',')")
+
+    # ---- 6b. 都道府県別（係数のばらつきを県単位で見る。47県運用の本体）----
+    con.execute("""create table pref as
+      select substr(市区町村コード,1,2) as 都道府県コード,
+             count(*) as 市区町村数,
+             sum(総65歳以上人口) as 総65歳以上人口,
+             sum(圏外65歳以上人口_変種A) as 圏外65歳以上人口_変種A,
+             round(sum(圏外65歳以上人口_変種A) / nullif(sum(総65歳以上人口),0), 4) as 圏外率_変種A,
+             round(sum(圏外65歳以上人口_変種C125) / nullif(sum(総65歳以上人口),0), 4) as 圏外率_変種C125,
+             round(sum(農水省_困難人口) / nullif(sum(総65歳以上人口),0), 4) as 農水省_困難人口割合,
+             round(sum(農水省_困難人口) / nullif(sum(圏外65歳以上人口_変種A),0), 3) as 比_農水省÷変種A,
+             round(median("比_農水省÷変種A"), 3) as 比の中央値,
+             round(stddev("比_農水省÷変種A"), 3) as 比のsd,
+             round(stddev("比_農水省÷変種A") / nullif(avg("比_農水省÷変種A"),0), 3) as 比の変動係数,
+             round(corr(圏外率_変種A, 農水省_困難人口割合), 3) as 相関r,
+             count(*) filter (where "比_農水省÷変種A" > 1) as 比が1超の市区町村,
+             count(*) filter (where "比_農水省÷変種C125" > 1) as 比C125が1超の市区町村
+      from city where 農水省_困難人口 is not null
+      group by 1 order by 圏外率_変種A desc""")
+    con.execute(f"copy pref to '{OUT_PREF}' (header, delimiter ',')")
     print(f"出力: {OUT_SENS}")
     print(f"出力: {OUT_CITY}")
+    print(f"出力: {OUT_PREF}")
 
     matched, total = con.execute(
         "select count(農水省_困難人口), count(*) from city").fetchone()
     print(f"コード突合: {matched}/{total} 市区町村")
+    unmatched = con.execute("""select 市区町村コード, 総65歳以上人口 from city
+                               where 農水省_困難人口 is null and 総65歳以上人口 > 0
+                               order by 総65歳以上人口 desc limit 10""").fetchall()
+    if unmatched:
+        print("  突合できなかったコード（65歳以上人口の多い順）:")
+        for c, p in unmatched:
+            print(f"    {c}  65+={p:,}")
 
     print("\n=== 対象県 全体 ===")
     a = con.execute("""select sum(総65歳以上人口), sum(圏外65歳以上人口_変種A),
