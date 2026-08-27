@@ -1,43 +1,55 @@
 #!/usr/bin/env python3
 """
-食料品店レイヤを「農水省 食料品アクセス困難人口」の指標で検証する（125mメッシュ人口）。
+食料品店まで**道路距離500m以上**の人口を125mメッシュから推計する（＋農水省公表値との突合）。
 
-何をするか
-----------
-125mメッシュ人口（`01_fetch_mesh_population.py`）と食料品店レイヤ（`FOOD_STORES`）から
-「500m圏外の65歳以上人口」を市区町村別に出し、農水省公表値（表5・2020年）と突合する。
+何を推計するか（★ 条件は距離のみ）
+----------------------------------
+成果物は **「食料品店まで道路距離が500m以上のところに住む人口」** であって、
+農水省の「食料品アクセス困難人口」ではない。農水省の定義は
 
-農水省の操作化について（500mメッシュ人口で実測した結論・`docs/検証_アクセス困難人口_メッシュ単位.md`）
-------------------------------------------------------------------------------------
-「500m以上」の実装候補を3つ試し、公表値との比（= 暗黙の自動車利用困難率）の分布を比べた:
+    店舗まで500m以上  **かつ**  自動車利用が困難  **かつ**  65歳以上
 
-  変種A 同一500mメッシュ内に店舗があるか   → 比 中央値0.370 / sd0.109  ★整合
-  変種B 自メッシュ+8近傍メッシュ            → 比 中央値0.592 / sd2.696
-  変種C 500mメッシュ重心から実距離500m以内  → 比 中央値0.446 / sd0.504
+の3条件だが、本スクリプトは**第1条件だけ**を推計する。自動車利用困難率は外部データで
+固定できておらず（係数が自動車要因と店舗レイヤの穴のどちらに由来するか分離できない）、
+掛けると推計値の意味が不明になるため**掛けない**。年齢条件も外せるように
+**65歳以上と総人口の両方**を出す。
 
-農水省の困難人口は「圏外 かつ 自動車利用困難」なので、比は必ず1以下でなければならない。
-B と C は比が1を超える市区町村が出る（＝論理的に不整合）。**変種Aのみ全市区町村で比≤1**。
-→ 公表値と整合する操作化は「店舗を500mメッシュに集計し、自メッシュに店舗が無ければ圏外」。
-   つまり**隣メッシュの店舗には救われない**＝店舗レイヤの網羅性が直に効く。
+主指標は **変種D（道路距離500m）**
+----------------------------------
+  変種D    : 道路ネットワーク上の距離が500m超か（`04_road_distance.py` の出力を結合）  ← ★主
+  変種A    : 125mメッシュが属する500mメッシュ（11桁コードの先頭9桁）に店舗があるか      ← 対照
+  変種C125 : 125mメッシュ重心から直線500m以内に店舗があるか                             ← 対照
 
-125mメッシュ人口にした理由と、ここで測り直すこと
+変種Dを主にする理由は、**実際に歩く距離であり、地域の厳しさの順位づけで最良だから**
+（地方部の相関 rA 0.199 → rD 0.258・`docs/検証_アクセス困難人口_メッシュ単位.md` 9.3）。
+変種Aは「同一500mメッシュ内の存否」なので隣メッシュ10m先の店に救われず、実効半径が
+250m程度になる二値近似であり、距離そのものを測ってはいない。
+
+農水省公表値（表5）との突合は「参考」に降格した
 ------------------------------------------------
-変種Cが不整合だった原因の一部は**重心誤差**である。500m格子の重心は実際の居住位置から
-最大 ~350m ずれるので、500mの距離判定に対して誤差が同じオーダーになってしまう。
-125mメッシュなら重心誤差は最大 ~88m に落ちる。そこで本スクリプトは同じ人口レイヤから
+公表値は上の3条件込みなので、距離条件だけの本推計と直接は比べられない。突合は
 
-  変種A    : 125mメッシュが属する500mメッシュ（11桁コードの先頭9桁）に店舗があるか  ← 主・農水省再現
-  変種C125 : 125mメッシュ重心から実距離500m以内に店舗があるか                       ← 対照
+  - **比 農水省÷本推計 が1を超えないこと**（超えたら論理矛盾＝どちらかが誤り）
+  - 相関 r（地域間の順位づけが公表値と整合するか）
 
-の両方を出す。**変種Aは500mメッシュ単位の集計としては人口を125mにしても数学的に不変**
+という**必要条件のチェック**としてのみ使う。比の値そのものは「暗黙の自動車利用困難率」
+であって推計の精度ではない。なお農水省の推計方法は 2024-03-19 研究成果報告会資料により
+**確率版**（当該＋周辺メッシュの店舗状況から、メッシュ内位置kで最近店舗が500m以上に
+なる確率を算出し人口に乗じる）かつ**直線距離**と判明している。二値判定の変種A/C/Dとは
+構造が違うので、都市部で比>1 が出るのはこの差による（issue #4）。
+
+125mメッシュ人口にした理由
+--------------------------
+500m格子の重心は実際の居住位置から最大 ~350m ずれ、500mの距離判定に対して誤差が同じ
+オーダーになる。125mメッシュなら重心誤差は最大 ~88m に落ちる。
+**変種Aは500mメッシュ単位の集計としては人口を125mにしても数学的に不変**
 （子16メッシュの和＝親メッシュ）で、変わるのは市区町村への割当精度だけ。
-意味が変わるのは変種C125の側であり、これが比≤1 を満たすかどうかが本リポジトリの論点。
 
-判定の見方
-----------
+店舗レイヤの投入可否の見方
+--------------------------
 件数を足せば圏外率は必ず下がるので、下がったこと自体は判定材料にならない。
-可否は **「比 農水省÷変種A が1を超えないこと」** と
-**「農水省公表値との相関 r が上がること」** で見る（本スクリプトが両方出す）。
+可否は **「比 農水省÷本推計 が1を超えないこと」** と **「相関 r が上がること」** を
+**地方部（高齢者密度 < 1,500人/km²・可住地ベース）に限定して**見る。
 
 距離・メッシュの扱い
 --------------------
@@ -46,11 +58,17 @@ B と C は比が1を超える市区町村が出る（＝論理的に不整合�
 - 変種C125 の近傍探索は等距円筒近似でメートル平面へ投影し 500m グリッドでバケット化する。
   この環境の DuckDB は `ST_Distance_Spheroid` が -nan を返すため。
 - DuckDB の `/` は DOUBLE を返し `::int` が四捨五入するため、メッシュ添字は必ず `//` を使う。
+- 変種Dは距離を持たず**真偽値だけを結合する**（`ROAD_DIST` の `out500m_road`）。
+  道路距離の算出は `04_road_distance.py` 側の責務で、**同じ店舗レイヤで作ること**。
+  アクセスリンクが張られていないメッシュは道路距離側に現れないので、
+  **変種Dの分母は「道路距離データがあるメッシュ」に限る**（分母をそろえないと率が濁る）。
 
 使い方
 ------
-  python scripts/01_fetch_mesh_population.py 高知県 島根県 宮城県   # 先にメッシュ人口を用意
-  FOOD_STORES=input/food_store_master_atp_permit.parquet \
+  python scripts/01_fetch_mesh_population.py                        # 先にメッシュ人口を用意
+  FOOD_STORES=input/food_store_master_atp_super.parquet \
+      python scripts/04_road_distance.py                           # 変種Dの道路距離を作る
+  FOOD_STORES=input/food_store_master_atp_super.parquet OUT_SUFFIX=_ATP⑪ \
       python scripts/02_validate_access_difficulty.py 高知県 島根県 宮城県
 出力
 ----
@@ -59,10 +77,8 @@ B と C は比が1を超える市区町村が出る（＝論理的に不整合�
   output/検証_アクセス困難人口_カテゴリ感度{SUFFIX}.csv
   data/mesh500m_out{SUFFIX}.parquet   125mメッシュ1行の判定結果（集計前・WRITE_MESH=0 で抑止）
 
-**メッシュ単位で出せるのは「500m圏外か否か」であって「アクセス困難」ではない。**
-農水省の困難人口は「圏外 **かつ** 自動車利用困難」で、後者を外部データで固定できていない
-（係数 0.42〜0.57 が自動車要因と店舗の穴のどちらに由来するか分離できていない）。
-列名を out500m_A / out500m_C125 にしてあるのはそのため。
+**出しているのは「500m圏外か否か」であって「アクセス困難」ではない。**
+列名を out500m_* にしてあるのはそのため。自動車利用も年齢も掛けていない。
 """
 import os
 import sys
@@ -84,6 +100,10 @@ import duckdb
 STORES = os.environ.get("FOOD_STORES", "input/food_store_master.parquet")
 SUFFIX = os.environ.get("OUT_SUFFIX", "")
 MESH = "data/mesh/mesh125_pop.parquet"
+# 変種D（主指標）の道路距離。`04_road_distance.py` の出力。**同じ店舗レイヤで作ること**。
+# 無ければ変種Dの列を落として変種A/C125 だけで走る（道路ネットワークはリポジトリ外なので、
+# それが無い環境でも検証だけは回せるようにしておく）。
+ROAD = os.environ.get("ROAD_DIST", "data/mesh_road_dist.parquet")
 BND_DIR = "data/boundary"
 MAFF_XLSX = "data/maff_2020_table05.xlsx"
 OUT_DIR = "output"
@@ -222,13 +242,29 @@ def main():
     n_store = con.execute("select count(*) from sb").fetchone()[0]
     print(f"店舗レイヤ {STORES}: {n_store:,} 件")
 
+    # 変種D（主指標）: 道路距離の判定結果。全国1本なので県ループの外で一度だけ読む。
+    has_road = os.path.exists(ROAD)
+    if has_road:
+        con.execute(f"""create table road as
+          select mesh_code, out500m_road from read_parquet('{ROAD}')""")
+        n_road, n_road_out = con.execute(
+            "select count(*), count(*) filter (where out500m_road) from road").fetchone()
+        print(f"道路距離 {ROAD}: {n_road:,} メッシュ / うち500m超 {n_road_out:,}")
+    else:
+        con.execute("create table road(mesh_code varchar, out500m_road boolean)")
+        print(f"⚠ 道路距離が無い: {ROAD} → 主指標の変種Dを飛ばし、変種A/C125 だけで走る"
+              "（先に scripts/04_road_distance.py を同じ店舗レイヤで実行すること）")
+
     # ---- 2. 県ごとに境界を載せ替えて cov を積む ----
     # 47県の小地域境界を一度に載せると点in poly が重い。県単位に区切ればメモリが平らになり、
     # メッシュ重心はちょうど1つの小地域にしか入らないので**結果は一括処理と同一**になる。
     con.execute("""create table cov(mesh_code varchar, city_code varchar,
                    pop_65over bigint, pop_total bigint,
                    has_sm boolean, has_cv boolean, has_dg boolean, has_fr boolean,
-                   inC boolean)""")
+                   inC boolean,
+                   -- 変種D。道路距離データが無いメッシュは NULL のままにして分母から外す
+                   -- （アクセスリンクが張られていないメッシュ・全国417件）。
+                   outD boolean)""")
     for pref in prefs:
         shp = fetch_boundary(pref)
         con.execute("drop table if exists area")
@@ -264,10 +300,12 @@ def main():
           select m.mesh_code, m.city_code, m.pop_65over, m.pop_total,
                  coalesce(a.has_sm,false), coalesce(a.has_cv,false),
                  coalesce(a.has_dg,false), coalesce(a.has_fr,false),
-                 (c.mesh_code is not null)
+                 (c.mesh_code is not null),
+                 r.out500m_road
           from mesh m
           left join hitA a using (mesh500_code)
-          left join hitC c using (mesh_code)""")
+          left join hitC c using (mesh_code)
+          left join road r using (mesh_code)""")
         n, p65 = con.execute(
             "select count(*), coalesce(sum(pop_65over),0) from mesh").fetchone()
         print(f"  {pref}: 125mメッシュ {n:>8,} 件 / 65歳以上 {p65:>9,} 人")
@@ -278,6 +316,14 @@ def main():
         # 小地域ポリゴンが重なっていると同じメッシュが二重計上される
         print(f"⚠ メッシュが重複している: {n_mesh - n500:,} 件（小地域ポリゴンの重なりを確認）")
     print(f"対象県内の125mメッシュ {n_mesh:,} 件 / 65歳以上 {pop65:,} 人")
+
+    # 変種Dの被覆確認。道路距離側に無いメッシュ（アクセスリンク欠落）は分母から外れるので、
+    # 欠落が大きいと圏外率が濁る。全国では417件・0.01%程度に収まっているはず。
+    if has_road:
+        n_nd, p_nd = con.execute("select count(*), coalesce(sum(pop_65over),0) "
+                                 "from cov where outD is null").fetchone()
+        print(f"  変種D 被覆: 道路距離データ無し {n_nd:,} メッシュ / 65歳以上 {p_nd:,} 人"
+              f"（{p_nd/pop65*100:.3f}%）→ 変種Dの分母から除外")
 
     # ---- 5. カテゴリ感度（主指標 = 変種A）----
     print("\n=== カテゴリ感度: 500m圏外の65歳以上人口（変種A・対象県計）===")
@@ -297,6 +343,14 @@ def main():
         "select sum(pop_65over) filter (where not inC), sum(pop_65over) from cov").fetchone()
     label_c = "(対照) 変種C125 実距離500m"
     print(f"  {label_c:22s} 圏外 {outC:>9,} / {allC:>9,} = {outC/allC*100:5.1f}%")
+    if has_road:
+        # 変種Dは道路距離側で店舗集合が固定されているのでカテゴリ入れ子には分解できない。
+        # 全カテゴリ相当の1行だけを、分母をそろえて出す。
+        outD, allD = con.execute(
+            "select sum(pop_65over) filter (where outD), sum(pop_65over) "
+            "from cov where outD is not null").fetchone()
+        label_d = "★主 変種D 道路距離500m"
+        print(f"  {label_d:22s} 圏外 {outD:>9,} / {allD:>9,} = {outD/allD*100:5.1f}%")
 
     con.execute("create table sens(店舗集合 varchar, 圏外65歳以上人口 bigint, "
                 "総65歳以上人口 bigint, 圏外率 double, 前段からの削減人数 bigint)")
@@ -330,51 +384,84 @@ def main():
         "select count(*) from citymap where raw_code <> city_code").fetchone()[0]
     print(f"区コードを市へ寄せた: {moved} 件")
 
+    # 推計の本体。**条件は「店舗まで500m以上」だけ**で、自動車利用も年齢も掛けていない。
+    # 年齢条件を外せるように 65歳以上と総人口の両方を出す。
+    # 変種D（主）の分母は道路距離データがあるメッシュに限る（popD65 / popDall）。
     con.execute("""create table city as
       select c.city_code as 市区町村コード, m.市区町村名,
+             c.pop_all as 総人口,
              c.pop65 as 総65歳以上人口,
              c.n_inhabited as 居住125mメッシュ数,
              -- 125mメッシュ = 0.015625 km²。可住地ベースの密度なので行政面積より実態に近い。
              -- **店舗レイヤに依存しない**ので、都市／地方の切り分けをこれで固定できる。
              round(c.pop65 / nullif(c.n_inhabited * 0.015625, 0)) as 高齢者密度_人per_km2,
+             -- ★主指標: 変種D（道路距離500m以上）。分母は道路距離データがあるメッシュ。
+             c.popD65 as 道路距離対象_65歳以上人口,
+             c.popDall as 道路距離対象_総人口,
+             c.outD as 圏外65歳以上人口_変種D,
+             round(c.outD / nullif(c.popD65,0), 4) as 圏外率_変種D,
+             c.outD_all as 圏外総人口_変種D,
+             round(c.outD_all / nullif(c.popDall,0), 4) as 圏外率_変種D_総人口,
+             -- 対照: 変種A（同一500mメッシュ内の存否）/ 変種C125（直線500m）
              c.outA as 圏外65歳以上人口_変種A,
              round(c.outA / nullif(c.pop65,0), 4) as 圏外率_変種A,
+             c.outA_all as 圏外総人口_変種A,
+             round(c.outA_all / nullif(c.pop_all,0), 4) as 圏外率_変種A_総人口,
              c.outA_sm as 圏外65歳以上人口_supermarketのみ,
              c.outC as 圏外65歳以上人口_変種C125,
              round(c.outC / nullif(c.pop65,0), 4) as 圏外率_変種C125,
+             -- 参考: 農水省公表値。**3条件込みなので本推計と直接は比べられない**。
+             -- 比が1を超えたら論理矛盾、という必要条件のチェックにだけ使う。
              round(m.maff_rate/100, 4) as 農水省_困難人口割合,
              round(m.maff_pop) as 農水省_困難人口,
+             round((m.maff_rate/100) / nullif(c.outD / nullif(c.popD65,0), 0), 3) as 比_農水省÷変種D,
              round((m.maff_rate/100) / nullif(c.outA / nullif(c.pop65,0), 0), 3) as 比_農水省÷変種A,
              round((m.maff_rate/100) / nullif(c.outC / nullif(c.pop65,0), 0), 3) as 比_農水省÷変種C125
-      from (select k.city_code, sum(pop_65over) pop65,
+      from (select k.city_code, sum(pop_65over) pop65, sum(pop_total) pop_all,
                    count(*) filter (where pop_total > 0) n_inhabited,
+                   sum(pop_65over) filter (where outD is not null) popD65,
+                   sum(pop_total)  filter (where outD is not null) popDall,
                    sum(case when not (has_sm or has_cv or has_dg or has_fr) then pop_65over else 0 end) outA,
+                   sum(case when not (has_sm or has_cv or has_dg or has_fr) then pop_total  else 0 end) outA_all,
                    sum(case when not has_sm then pop_65over else 0 end) outA_sm,
-                   sum(case when not inC then pop_65over else 0 end) outC
+                   sum(case when not inC then pop_65over else 0 end) outC,
+                   coalesce(sum(pop_65over) filter (where outD), 0) outD,
+                   coalesce(sum(pop_total)  filter (where outD), 0) outD_all
             from cov join citymap k on cov.city_code = k.raw_code
             group by 1) c
       left join maff m using (city_code)
-      order by 圏外率_変種A desc""")
+      order by 圏外率_変種D desc nulls last""")
     con.execute(f"copy city to '{OUT_CITY}' (header, delimiter ',')")
 
-    # ---- 6b. 都道府県別（係数のばらつきを県単位で見る。47県運用の本体）----
+    # ---- 6b. 都道府県別（主指標は変種D。ばらつきを県単位で見る。47県運用の本体）----
     con.execute("""create table pref as
       select substr(市区町村コード,1,2) as 都道府県コード,
              count(*) as 市区町村数,
+             sum(総人口) as 総人口,
              sum(総65歳以上人口) as 総65歳以上人口,
+             -- ★主指標: 変種D
+             sum(圏外65歳以上人口_変種D) as 圏外65歳以上人口_変種D,
+             round(sum(圏外65歳以上人口_変種D) / nullif(sum(道路距離対象_65歳以上人口),0), 4) as 圏外率_変種D,
+             sum(圏外総人口_変種D) as 圏外総人口_変種D,
+             round(sum(圏外総人口_変種D) / nullif(sum(道路距離対象_総人口),0), 4) as 圏外率_変種D_総人口,
+             -- 対照
              sum(圏外65歳以上人口_変種A) as 圏外65歳以上人口_変種A,
              round(sum(圏外65歳以上人口_変種A) / nullif(sum(総65歳以上人口),0), 4) as 圏外率_変種A,
+             round(sum(圏外総人口_変種A) / nullif(sum(総人口),0), 4) as 圏外率_変種A_総人口,
              round(sum(圏外65歳以上人口_変種C125) / nullif(sum(総65歳以上人口),0), 4) as 圏外率_変種C125,
+             -- 参考: 農水省公表値との突合（必要条件チェック）
              round(sum(農水省_困難人口) / nullif(sum(総65歳以上人口),0), 4) as 農水省_困難人口割合,
+             round(sum(農水省_困難人口) / nullif(sum(圏外65歳以上人口_変種D),0), 3) as 比_農水省÷変種D,
              round(sum(農水省_困難人口) / nullif(sum(圏外65歳以上人口_変種A),0), 3) as 比_農水省÷変種A,
-             round(median("比_農水省÷変種A"), 3) as 比の中央値,
-             round(stddev("比_農水省÷変種A"), 3) as 比のsd,
-             round(stddev("比_農水省÷変種A") / nullif(avg("比_農水省÷変種A"),0), 3) as 比の変動係数,
-             round(corr(圏外率_変種A, 農水省_困難人口割合), 3) as 相関r,
+             round(median("比_農水省÷変種D"), 3) as 比Dの中央値,
+             round(stddev("比_農水省÷変種D"), 3) as 比Dのsd,
+             round(corr(圏外率_変種D, 農水省_困難人口割合), 3) as 相関rD,
+             round(corr(圏外率_変種A, 農水省_困難人口割合), 3) as 相関rA,
+             count(*) filter (where "比_農水省÷変種D" > 1) as 比Dが1超の市区町村,
              count(*) filter (where "比_農水省÷変種A" > 1) as 比が1超の市区町村,
              count(*) filter (where "比_農水省÷変種C125" > 1) as 比C125が1超の市区町村
       from city where 農水省_困難人口 is not null
-      group by 1 order by 圏外率_変種A desc""")
+      group by 1 order by 圏外率_変種D desc nulls last""")
     con.execute(f"copy pref to '{OUT_PREF}' (header, delimiter ',')")
 
     # ---- 6c. メッシュ単位の判定結果（集計前）----
@@ -387,7 +474,9 @@ def main():
                  -- 変種A: 同一500mメッシュに対象4業態のいずれも無ければ 500m圏外
                  not (c.has_sm or c.has_cv or c.has_dg or c.has_fr) as out500m_A,
                  -- 変種C125: 重心から実距離500m以内に1件も無ければ圏外（対照）
-                 not c.inC as out500m_C125
+                 not c.inC as out500m_C125,
+                 -- ★主指標 変種D: 道路距離500m超。道路距離データが無いメッシュは NULL
+                 c.outD as out500m_road
           from cov c
           join citymap k on c.city_code = k.raw_code
           join read_parquet('{MESH}') m using (mesh_code)
@@ -414,18 +503,37 @@ def main():
         for c, p in unmatched:
             print(f"    {c}  65+={p:,}")
 
-    print("\n=== 対象県 全体 ===")
-    a = con.execute("""select sum(総65歳以上人口), sum(圏外65歳以上人口_変種A),
+    # ---- 7. 推計値（★これが成果物。条件は「店舗まで500m以上」だけ）----
+    print("\n=== 推計: 食料品店まで500m以上の人口（対象県計・自動車利用は掛けていない）===")
+    a = con.execute("""select sum(総人口), sum(総65歳以上人口),
+                              sum(道路距離対象_総人口), sum(道路距離対象_65歳以上人口),
+                              sum(圏外総人口_変種D), sum(圏外65歳以上人口_変種D),
+                              sum(圏外総人口_変種A), sum(圏外65歳以上人口_変種A),
                               sum(圏外65歳以上人口_変種C125), sum(農水省_困難人口)
                        from city where 農水省_困難人口 is not null""").fetchone()
-    print(f"  65歳以上人口                 {a[0]:>10,}")
-    print(f"  変種A    500m圏外人口         {a[1]:>10,}  ({a[1]/a[0]*100:.1f}%)")
-    print(f"  変種C125 500m圏外人口         {a[2]:>10,}  ({a[2]/a[0]*100:.1f}%)")
-    print(f"  農水省 困難人口（公表）        {int(a[3]):>10,}  ({a[3]/a[0]*100:.1f}%)")
-    print(f"  比 農水省÷変種A               {a[3]/a[1]:>10.3f}  ← 自動車利用困難率に相当")
-    print(f"  比 農水省÷変種C125            {a[3]/a[2]:>10.3f}")
+    pop_all, pop65, dnA, dn65, dA, d65, aA, a65, c65, maff = a
+    print(f"  総人口                       {pop_all:>10,}")
+    print(f"  65歳以上人口                 {pop65:>10,}")
+    if dn65:
+        print(f"  ★変種D 道路距離500m以上（総人口）    {dA:>10,}  ({dA/dnA*100:.1f}%)")
+        print(f"  ★変種D 道路距離500m以上（65歳以上）  {d65:>10,}  ({d65/dn65*100:.1f}%)")
+        print(f"     ↑ 分母は道路距離データがあるメッシュ "
+              f"（総人口 {dnA:,} / 65歳以上 {dn65:,}・"
+              f"欠落 {pop65-dn65:,}人 = {(pop65-dn65)/pop65*100:.2f}%）")
+    print(f"  （対照）変種A メッシュ存否（総人口）  {aA:>10,}  ({aA/pop_all*100:.1f}%)")
+    print(f"  （対照）変種A メッシュ存否（65歳以上）{a65:>10,}  ({a65/pop65*100:.1f}%)")
+    print(f"  （対照）変種C125 直線500m（65歳以上） {c65:>10,}  ({c65/pop65*100:.1f}%)")
 
-    for col, rate in (("比_農水省÷変種A", "圏外率_変種A"),
+    # ---- 8. 参考: 農水省公表値との突合（必要条件チェック。精度の指標ではない）----
+    print("\n=== 参考: 農水省 公表値との突合（3条件込みなので直接比較はできない）===")
+    print(f"  農水省 困難人口（公表）        {int(maff):>10,}  ({maff/pop65*100:.1f}%)")
+    if d65:
+        print(f"  比 農水省÷変種D               {maff/d65:>10.3f}  ← 暗黙の自動車利用困難率")
+    print(f"  比 農水省÷変種A               {maff/a65:>10.3f}")
+    print(f"  比 農水省÷変種C125            {maff/c65:>10.3f}")
+
+    for col, rate in (("比_農水省÷変種D", "圏外率_変種D"),
+                      ("比_農水省÷変種A", "圏外率_変種A"),
                       ("比_農水省÷変種C125", "圏外率_変種C125")):
         print(f"\n=== {col} の分布（1を超えたら操作化が不整合）===")
         q = con.execute(f"""select count(*), min({col}), quantile_cont({col},0.1),
@@ -434,26 +542,28 @@ def main():
                                   corr({rate}, 農水省_困難人口割合),
                                   count(*) filter (where {col} > 1)
                            from city where {col} is not null""").fetchone()
+        if not q[0]:
+            print("  （データなし。この変種は算出されていない）")
+            continue
         print(f"  n={q[0]}  min={q[1]:.3f}  p10={q[2]:.3f}  median={q[3]:.3f}  "
               f"p90={q[4]:.3f}  max={q[5]:.3f}  sd={q[6]:.3f}")
         print(f"  相関 r={q[7]:.3f}   比>1 の市区町村={q[8]} 件"
               f"{'  ← 不整合' if q[8] else '  ← 整合'}")
 
-    print("\n=== 比が小さい＝圏外率が過大（店舗レイヤの穴の疑い）top10 ===")
-    for r in con.execute("""select 市区町村コード, 市区町村名, 総65歳以上人口, 圏外率_変種A,
-                                   農水省_困難人口割合, 比_農水省÷変種A
-                            from city where 比_農水省÷変種A is not null and 総65歳以上人口 >= 3000
-                            order by 比_農水省÷変種A limit 10""").fetchall():
-        print(f"  {r[0]} {str(r[1]):12s} 65+={r[2]:>7,} "
-              f"変種A圏外={r[3]*100:5.1f}% 農水省={r[4]*100:5.1f}% 比={r[5]}")
-
-    print("\n=== 比が大きい＝圏外率が過小（店舗の偽陽性・過剰計上の疑い）top10 ===")
-    for r in con.execute("""select 市区町村コード, 市区町村名, 総65歳以上人口, 圏外率_変種A,
-                                   農水省_困難人口割合, 比_農水省÷変種A
-                            from city where 比_農水省÷変種A is not null and 総65歳以上人口 >= 3000
-                            order by 比_農水省÷変種A desc limit 10""").fetchall():
-        print(f"  {r[0]} {str(r[1]):12s} 65+={r[2]:>7,} "
-              f"変種A圏外={r[3]*100:5.1f}% 農水省={r[4]*100:5.1f}% 比={r[5]}")
+    # 主指標で外れを見る。変種Dが無ければ変種Aに落とす。
+    main_v = "変種D" if has_road else "変種A"
+    for title, order in (
+            ("比が小さい＝圏外率が過大（店舗レイヤの穴の疑い）", ""),
+            ("比が大きい＝圏外率が過小（店舗の偽陽性・過剰計上の疑い）", " desc")):
+        print(f"\n=== {title} top10（主指標 {main_v}）===")
+        for r in con.execute(f"""
+                select 市区町村コード, 市区町村名, 総65歳以上人口, 圏外率_{main_v},
+                       農水省_困難人口割合, 比_農水省÷{main_v}
+                from city
+                where 比_農水省÷{main_v} is not null and 総65歳以上人口 >= 3000
+                order by 比_農水省÷{main_v}{order} limit 10""").fetchall():
+            print(f"  {r[0]} {str(r[1]):12s} 65+={r[2]:>7,} "
+                  f"{main_v}圏外={r[3]*100:5.1f}% 農水省={r[4]*100:5.1f}% 比={r[5]}")
 
 
 if __name__ == "__main__":
