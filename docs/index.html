@@ -92,20 +92,6 @@
     }
     #view-toggle:hover { background: rgba(240,240,235,0.97); }
 
-    /* 判定方式トグル（変種A ↔ 変種D）。2D/3D の左隣。 */
-    #mode-toggle {
-      position: absolute;
-      top: 14px; right: 372px; z-index: 20;
-      background: rgba(255,255,252,0.94);
-      border: 1px solid rgba(0,0,0,0.1);
-      border-radius: 10px; padding: 8px 14px;
-      font-size: 0.82rem; font-weight: 600; color: #333;
-      cursor: pointer; backdrop-filter: blur(8px);
-      box-shadow: 0 2px 12px rgba(0,0,0,0.12);
-      white-space: nowrap;
-    }
-    #mode-toggle:hover { background: rgba(240,240,235,0.97); }
-
     /* ── 凡例・集計・現在地トグルボタン（スマホのみ表示） ── */
     #legend-toggle, #stats-toggle, #geolocate-toggle { display: none; }
 
@@ -201,7 +187,7 @@
       .legend-item { font-size: 0.78rem; margin: 4px 0; }
       .legend-dot  { width: 11px; height: 11px; }
 
-      #legend-toggle, #stats-toggle, #view-toggle, #geolocate-toggle, #mode-toggle {
+      #legend-toggle, #stats-toggle, #view-toggle, #geolocate-toggle {
         width: 52px; justify-content: center; text-align: center;
         padding: 6px 0; box-sizing: border-box;
       }
@@ -246,16 +232,10 @@
         box-shadow: 0 2px 8px rgba(0,0,0,0.1);
         font-size: 0.82rem;
       }
-      #mode-toggle {
-        top: max(132px, calc(env(safe-area-inset-top) + 122px));
-        right: 14px; border-radius: 8px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-        font-size: 0.72rem;
-      }
       #geolocate-toggle {
         display: flex; align-items: center;
         position: absolute;
-        top: max(172px, calc(env(safe-area-inset-top) + 162px));
+        top: max(132px, calc(env(safe-area-inset-top) + 122px));
         right: 14px; z-index: 20;
         background: rgba(255,255,252,0.94);
         border: 1px solid rgba(0,0,0,0.1);
@@ -306,20 +286,16 @@
     <h3>最寄りの食料品店まで500m</h3>
     <button id="legend-close" aria-label="閉じる">✕</button>
   </div>
-  <div class="legend-item"><div class="legend-dot" style="background:#34d399"></div>スーパーがある</div>
-  <div class="legend-item"><div class="legend-dot" style="background:#fb923c"></div>コンビニ・ドラッグストア・生鮮のみ</div>
-  <div class="legend-item"><div class="legend-dot" style="background:#f43f5e"></div>500m圏外（どれも無い）</div>
-  <div id="mode-note" style="margin-top:8px;font-size:0.72rem;color:#999;line-height:1.4;">
-    道路ネットワーク上の徒歩距離500m以内に店があるか（3.6km/h・Dijkstra）
-  </div>
-  <div style="margin-top:6px;font-size:0.72rem;color:#999;line-height:1.4;">
-    ※ 右上のボタンで「メッシュ」判定（同じ500mメッシュ内の店舗存否）に切り替えられる。<br>
+  <div class="legend-item"><div class="legend-dot" style="background:#34d399"></div>スーパーまで500m以内</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#fb923c"></div>スーパーは遠いが他の店は500m以内</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#f43f5e"></div>500m圏外（どの店も遠い）</div>
+  <div style="margin-top:8px;font-size:0.72rem;color:#999;line-height:1.4;">
+    距離は<b>道路ネットワーク上の徒歩距離</b>（3.6km/h・Dijkstra）。直線距離ではない。<br>
     ※ 条件は距離だけ。自動車の利用可否は掛けていないので「アクセス困難人口」ではない。
   </div>
 </div>
 <button id="legend-toggle">凡例</button>
 <button id="stats-toggle">集計</button>
-<button id="mode-toggle" title="判定方式を切り替える">道路距離</button>
 <button id="view-toggle">3D</button>
 <button id="geolocate-toggle">📍</button>
 
@@ -328,8 +304,8 @@
     <h3>全国集計（令和2年国勢調査・65歳以上）</h3>
     <button id="stats-close" aria-label="閉じる">✕</button>
   </div>
-  <div class="stat-row">スーパーあり <span id="stat-sm"></span></div>
-  <div class="stat-row">コンビニ等のみ <span id="stat-cv"></span></div>
+  <div class="stat-row">スーパーまで500m以内 <span id="stat-sm"></span></div>
+  <div class="stat-row">他の店だけ500m以内 <span id="stat-cv"></span></div>
   <div class="stat-row stat-out">500m圏外 <span id="stat-out"></span></div>
   <div class="caveat">
     <b>これは「500m圏外」であって「アクセス困難」ではない。</b>
@@ -340,7 +316,9 @@
   <div id="assumptions">
     <dl>
       <dt>判定方法</dt>
-      <dd id="assump-method"></dd>
+      <dd>道路ネットワーク上の徒歩距離500m以内に対象店舗があるか<br>
+          3.6km/h・Multi-source Dijkstra（到達不能は圏外）<br>
+          直線距離でもメッシュ単位の存否でもない</dd>
       <dt>対象店舗</dt>
       <dd>食料品スーパー・百貨店・総合スーパー、コンビニ、<br>ドラッグストア、食肉・鮮魚・野菜果実小売業</dd>
       <dt>データ出典</dt>
@@ -353,9 +331,9 @@
           農水省の「アクセス困難人口」ではない。</dd>
       <dt>妥当性</dt>
       <dd>地方部（高齢者密度&lt;1,500人/km²・1,586市区町村）では公表値と整合する
-          （比&gt;1 は 道路距離 3.2% / メッシュ 0.4%）。
-          <b>都市部では農水省の公表値を再現できない</b>（比&gt;1 が 道路距離 80% / メッシュ 47%）。
-          農水省の推計は確率版（メッシュ内位置の面積比）と判明しており、二値判定とは構造が違う。
+          （比&gt;1 は 3.2%）。
+          <b>都市部では農水省の公表値を再現できない</b>（比&gt;1 が 79.9%）。
+          農水省の推計は確率版（メッシュ内位置の面積比）と判明しており構造が違う。
           都市部の色は参考値として見ること。</dd>
     </dl>
   </div>
@@ -391,40 +369,31 @@ const geolocate = new maplibregl.GeolocateControl({
 map.addControl(geolocate, "top-left");
 map.addControl(new maplibregl.ScaleControl({ maxWidth: 120, unit: "metric" }), "bottom-left");
 
-// ── 判定方式 ──
-// A = 同一500mメッシュ内の店舗存否（農水省の公表値を再現できる操作化）
-// D = 道路距離500m（Multi-source Dijkstra。japan-transit-desert-analysis-125 と同じ算出方法）
-// タイルには cat_code を持たせず out_a / out_d と sm から式で導くので、
-// 切り替えにタイルの作り直しは要らない。
-// 既定は D。推計の条件は「店舗まで500m以上」だけで、実際に歩く距離である道路距離を主に据える。
-let mode = "D";
-const outKey = () => (mode === "A" ? "out_a" : "out_d");
+// ── 判定 ──
+// **道路距離だけ**（Multi-source Dijkstra。japan-transit-desert-analysis-125 と同じ算出方法）。
+// かつては変種A（同一500mメッシュの店舗存否）と切り替えられるようにしていたが、
+// 実際に歩く距離を測っていないので廃止した。
+//   out_d  = 全カテゴリ（S4）まで500m超
+//   out_sm = スーパー（S1）まで500m超
+// タイルには区分を焼かず、この2つから MapLibre の式で導く。
 const catCodeExpr = () => ["case",
-  ["==", ["get", outKey()], 1], 2,
-  ["==", ["get", "sm"], 1], 0,
+  ["==", ["get", "out_d"], 1], 2,
+  ["==", ["get", "out_sm"], 0], 0,
   1
 ];
-const MODE_LABEL = { A: "メッシュ", D: "道路距離" };
-const MODE_DESC = {
-  A: "同じ500mメッシュ内に店があるか（農水省の公表値を再現できる方式）",
-  D: "道路ネットワーク上の徒歩距離500m以内に店があるか（3.6km/h・Dijkstra）",
+// 集計パネルの数値。02_validate_access_difficulty.py の出力から手で写す
+// （ATP⑪ 122,249店・47県・65歳以上 35,314,481人。道路距離が未定義のメッシュは
+// 地図と同じく圏外に倒して数えている）。**再集計したらここも更新すること。**
+const STATS = {
+  sm: "1,249万人（35.4%）",
+  cv: "915万人（25.9%）",
+  out: "1,368万人（38.7%）",
 };
-// 集計パネルの数値。判定方式で中身が変わるので静的に書かずここに持つ。
-// 出典: 02_validate_access_difficulty.py（ATP⑪ 122,249店・47県・65歳以上 35,314,481人）。
-// 変種Dは道路距離が未定義のメッシュを圏外に倒した地図と同じ流儀で数えている。
-const MODE_STATS = {
-  A: {
-    sm: "948万人（26.8%）", cv: "907万人（25.7%）", out: "1,677万人（47.5%）",
-    method: "その125mメッシュが属する500mメッシュに対象店舗があるか<br>" +
-            "直線500m円ではない（隣メッシュには救われない）",
-  },
-  D: {
-    sm: "894万人（25.3%）", cv: "1,270万人（36.0%）", out: "1,368万人（38.7%）",
-    method: "道路ネットワーク上の徒歩距離500m以内に対象店舗があるか<br>" +
-            "3.6km/h・Multi-source Dijkstra（到達不能は圏外）",
-  },
+const CAT_LABEL = {
+  0: "スーパーまで500m以内",
+  1: "スーパーは遠いが他の店は500m以内",
+  2: "500m圏外",
 };
-const CAT_LABEL = { 0: "スーパーあり", 1: "コンビニ・ドラッグストア・生鮮のみ", 2: "500m圏外" };
 const CAT_COLOR = { 0: "#34d399", 1: "#fb923c", 2: "#f43f5e" };
 
 const OPACITY_2D = ["interpolate", ["linear"], ["zoom"], 5, 0.9, 10, 0.75, 14, 0.6];
@@ -472,36 +441,31 @@ map.on("load", () => {
   popup.on("close", () => { pinned = false; });
 
   function catOf(p) {
-    if (Number(p[outKey()]) === 1) return 2;
-    if (Number(p.sm) === 1) return 0;
+    if (Number(p.out_d) === 1) return 2;
+    if (Number(p.out_sm) === 0) return 0;
     return 1;
   }
-  // dmin は「最寄り店舗までの道路距離（分）」。3.6km/h なので 1分 = 60m。
-  function roadText(p) {
-    if (p.dmin === undefined || p.dmin === null) return "—";
-    const min = Number(p.dmin);
+  // dmin / dsm は最寄り店舗までの道路距離（分）。3.6km/h なので 1分 = 60m。
+  // 到達不能・道路距離が未定義のメッシュは null で来る。
+  function roadText(v) {
+    if (v === undefined || v === null || v === "") return "到達不能";
+    const min = Number(v);
+    if (!isFinite(min)) return "到達不能";
     return `${Math.round(min * 60).toLocaleString()}m（${min.toFixed(1)}分）`;
   }
 
   function makePopupHTML(p) {
     const code = catOf(p);
-    const kinds = [];
-    if (Number(p.sm)) kinds.push("スーパー");
-    if (Number(p.cv)) kinds.push("コンビニ");
-    if (Number(p.dg)) kinds.push("ドラッグストア");
-    if (Number(p.fr)) kinds.push("生鮮");
     const pop = p.pop ? `${Number(p.pop).toLocaleString()}人` : "0人";
     const p65 = p.p65 ? `${Number(p.p65).toLocaleString()}人` : "0人";
     return `<div style="font-size:0.82rem;line-height:1.6;min-width:200px">
       <div style="font-weight:700;color:${CAT_COLOR[code]};margin-bottom:4px">${CAT_LABEL[code]}</div>
-      <div>同じ500mメッシュの店：${kinds.length ? kinds.join("・") : "なし"}</div>
-      <div>最寄り店舗まで（道路距離）：${roadText(p)}</div>
+      <div>最寄り店舗まで：${roadText(p.dmin)}</div>
+      <div>最寄りスーパーまで：${roadText(p.dsm)}</div>
       <div>人口（125m四方）：${pop}</div>
       <div>うち65歳以上：${p65}</div>
       <div style="margin-top:4px;color:#999;font-size:0.72rem">
-        メッシュ判定：${Number(p.out_a) === 1 ? "圏外" : "圏内"} ／
-        道路距離判定：${Number(p.out_d) === 1 ? "圏外" : "圏内"} ／
-        直線500m：${Number(p.out_c) === 1 ? "圏外" : "圏内"}
+        道路距離500m判定：${Number(p.out_d) === 1 ? "圏外" : "圏内"}
       </div>
     </div>`;
   }
@@ -570,14 +534,12 @@ async function searchAddress() {
         const features = map.queryRenderedFeatures(pt, { layers: ["food-fill"] });
         if (features.length) {
           const p = features[0].properties;
-          const code = Number(p[outKey()]) === 1 ? 2 : (Number(p.sm) === 1 ? 0 : 1);
+          const code = Number(p.out_d) === 1 ? 2 : (Number(p.out_sm) === 0 ? 0 : 1);
           const info = CAT_INFO[code];
-          const kinds = [];
-          if (Number(p.sm)) kinds.push("スーパー");
-          if (Number(p.cv)) kinds.push("コンビニ");
-          if (Number(p.dg)) kinds.push("ドラッグストア");
-          if (Number(p.fr)) kinds.push("生鮮");
-          const detail = `${info.desc}<br>同じ500mメッシュの店：${kinds.length ? kinds.join("・") : "なし"}`;
+          const dmin = (p.dmin === undefined || p.dmin === null || p.dmin === "")
+            ? "到達不能"
+            : `${Math.round(Number(p.dmin) * 60).toLocaleString()}m`;
+          const detail = `${info.desc}<br>最寄り店舗まで（道路距離）：${dmin}`;
           showResult(info, detail);
           // 区分色に合わせてマーカーを更新
           searchMarker.remove();
@@ -661,24 +623,10 @@ document.getElementById("view-toggle").addEventListener("click", () => {
   document.getElementById("view-toggle").textContent = is3D ? "2D" : "3D";
 });
 
-// ── 判定方式トグル（変種D ↔ 変種A） ──
-const modeToggle = document.getElementById("mode-toggle");
-function applyModeStats() {
-  const s = MODE_STATS[mode];
-  document.getElementById("stat-sm").textContent = s.sm;
-  document.getElementById("stat-cv").textContent = s.cv;
-  document.getElementById("stat-out").textContent = s.out;
-  document.getElementById("assump-method").innerHTML = s.method;
-}
-applyModeStats();
-modeToggle.addEventListener("click", () => {
-  mode = mode === "A" ? "D" : "A";
-  modeToggle.textContent = MODE_LABEL[mode];
-  modeToggle.title = MODE_DESC[mode];
-  map.setPaintProperty("food-fill", "fill-extrusion-color", catColor());
-  document.getElementById("mode-note").textContent = MODE_DESC[mode];
-  applyModeStats();
-});
+// ── 集計パネルの数値 ──
+document.getElementById("stat-sm").textContent = STATS.sm;
+document.getElementById("stat-cv").textContent = STATS.cv;
+document.getElementById("stat-out").textContent = STATS.out;
 
 // ── 現在地トグル（スマホ用） ──
 document.getElementById("geolocate-toggle").addEventListener("click", () => {
