@@ -322,6 +322,10 @@ def main():
     con.execute("""create table city as
       select c.city_code as 市区町村コード, m.市区町村名,
              c.pop65 as 総65歳以上人口,
+             c.n_inhabited as 居住125mメッシュ数,
+             -- 125mメッシュ = 0.015625 km²。可住地ベースの密度なので行政面積より実態に近い。
+             -- **店舗レイヤに依存しない**ので、都市／地方の切り分けをこれで固定できる。
+             round(c.pop65 / nullif(c.n_inhabited * 0.015625, 0)) as 高齢者密度_人per_km2,
              c.outA as 圏外65歳以上人口_変種A,
              round(c.outA / nullif(c.pop65,0), 4) as 圏外率_変種A,
              c.outA_sm as 圏外65歳以上人口_supermarketのみ,
@@ -332,6 +336,7 @@ def main():
              round((m.maff_rate/100) / nullif(c.outA / nullif(c.pop65,0), 0), 3) as 比_農水省÷変種A,
              round((m.maff_rate/100) / nullif(c.outC / nullif(c.pop65,0), 0), 3) as 比_農水省÷変種C125
       from (select k.city_code, sum(pop_65over) pop65,
+                   count(*) filter (where pop_total > 0) n_inhabited,
                    sum(case when not (has_sm or has_cv or has_dg or has_fr) then pop_65over else 0 end) outA,
                    sum(case when not has_sm then pop_65over else 0 end) outA_sm,
                    sum(case when not inC then pop_65over else 0 end) outC
