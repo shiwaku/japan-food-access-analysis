@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """HTTP server with Range request support (required for PMTiles)."""
 import os, sys
-from http.server import HTTPServer, SimpleHTTPRequestHandler
+from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 
 
 class RangeHandler(SimpleHTTPRequestHandler):
@@ -61,5 +61,8 @@ if __name__ == "__main__":
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8080
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
     print(f"Serving at http://localhost:{port}/docs/")
-    with HTTPServer(("", port), RangeHandler) as httpd:
+    # **ThreadingHTTPServer でないと使い物にならない。** PMTiles は並列に大量の Range
+    # リクエストを投げるうえ、ブラウザが keep-alive で接続を掴んだままにするので、
+    # シングルスレッドの HTTPServer だと後続のリクエストが全部ブロックされる。
+    with ThreadingHTTPServer(("", port), RangeHandler) as httpd:
         httpd.serve_forever()
