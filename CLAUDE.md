@@ -241,6 +241,8 @@ walk 3.6km/h = 60m/分、500m = 8.33分。到達不能は圏外に倒し、ア�
 - タイルのプロパティは `out_d` / `out_sm` / `dmin`（最寄り分）/ `dsm`（最寄りスーパー分）。
   `out_a` / `out_c` / `sm` / `cv` / `dg` / `fr` は**廃止した**。
 - 集計パネルの数値は `STATS` にハードコードしてある。**再集計したら更新すること**。
+  **凡例と出典の店舗数（合計 122,249・業態別4つ）もハードコード**。店舗レイヤを差し替えたら
+  `select cat, count(*) from '<FOOD_STORES>' group by 1` で出し直して両方直す。
 - **`#stats` だけ `backdrop-filter` を外してある。** モバイルで `overflow-y:auto` になり、
   **内部スクロールを持つパネルに backdrop-filter を掛けると実GPUで合成不具合（白化・欠け）**が出る
   （japan-food-store-master の CLAUDE.md 既知の落とし穴）。-125 は掛けているが踏襲しない。
