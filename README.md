@@ -215,8 +215,13 @@ bash output/make_pmtiles.sh             # tippecanoe を別途走らせる場合
 python serve.py 8080                    # http://localhost:8080/docs/ （Range 対応が必要）
 ```
 
-PMTiles（約300MB）と GeoJSONL は `.gitignore`。公開時は外部ホスティングに置く（`docs/index.html`
-の `PMTILES_URL` が localhost では `../output/` を、それ以外では外部URLを見る）。
+PMTiles（約400MB）と GeoJSONL は `.gitignore`。公開用は Cloudflare R2（配信ドメイン `shi-works.com`）に置く。
+`docs/index.html` の `PMTILES_URL` が localhost では `../output/` を、それ以外では
+`https://shi-works.com/pmtiles/japan-food-access-analysis/food_access_125m.pmtiles` を見る。
+
+```bash
+aws s3 cp output/food_access_125m.pmtiles   s3://shi-works/pmtiles/japan-food-access-analysis/food_access_125m.pmtiles   --profile r2-shiworks --content-type application/octet-stream --cache-control "public, max-age=3600"
+```
 
 ## 使い方
 
