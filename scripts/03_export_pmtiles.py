@@ -21,8 +21,9 @@ mesh500m_out_*.parquet → GeoJSONL → PMTiles（tippecanoe）
 --------------------------------------------
   out_d   全カテゴリ（S4）まで道路距離500m超か  ← 地図の赤
   out_sm  スーパー（S1）まで道路距離500m超か    ← 緑／橙の切り分け
-  dsm     最寄りスーパーまでの徒歩分（S1）
-  dcv     最寄りコンビニ等（convenience+drugstore+fresh_food = SO）までの徒歩分
+  dsm     最寄りスーパーまでの道路距離 m（S1・整数）
+  dcv     最寄りコンビニ等（convenience+drugstore+fresh_food = SO）までの道路距離 m（整数）
+          v3（2026-09-20）から m。v2 までは徒歩分（60m/分）だった
           （2026-09-20 追加。04 の parquet を mesh_code で結合して取る。02 の出力には無い）
 
 かつて載せていた `out_a`（同一500mメッシュの店舗存否）・`out_c`（直線500m）・
@@ -87,10 +88,10 @@ def main():
         f"from read_parquet('{SRC}')").fetchone()
     print(f"入力 {SRC}: {n_all:,} メッシュ（うち人口>0 は {n_pop:,}）")
     cols = [r[0] for r in con.execute(f"describe select * from read_parquet('{ROAD}')").fetchall()]
-    if "dist_SO_min" not in cols:
-        sys.exit(f"{ROAD} に dist_SO_min が無い。04_road_distance.py を回し直すこと（2026-09-20 追加）")
+    if "dist_SO_m" not in cols:
+        sys.exit(f"{ROAD} に dist_SO_m が無い。04_road_distance.py を回し直すこと（2026-09-20 追加）")
     n_road = con.execute(f"select count(*) from read_parquet('{ROAD}')").fetchone()[0]
-    print(f"道路距離 {ROAD}: {n_road:,} メッシュ（dcv = dist_SO_min）")
+    print(f"道路距離 {ROAD}: {n_road:,} メッシュ（dcv = dist_SO_m）")
 
     print(f"GeoJSONL 出力中 → {GEOJSONL} …")
     con.execute(f"""
@@ -114,9 +115,9 @@ COPY (
       'out_d':  CASE WHEN coalesce(s.out500m_S4, true) THEN 1 ELSE 0 END,
       -- スーパー（S1）まで500m超か。緑／橙の切り分けに使う。
       'out_sm': CASE WHEN coalesce(s.out500m_S1, true) THEN 1 ELSE 0 END,
-      -- 最寄りまでの徒歩分（60m/分）。到達不能・未定義は null
-      'dsm': round(s.dist_S1_min, 1),
-      'dcv': round(r.dist_SO_min, 1)
+      -- 最寄りまでの道路距離 m（整数）。到達不能・未定義は null
+      'dsm': round(s.dist_S1_m)::int,
+      'dcv': round(r.dist_SO_m)::int
     }}
   }}) AS j
   FROM read_parquet('{SRC}') s

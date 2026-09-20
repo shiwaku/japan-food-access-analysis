@@ -183,7 +183,7 @@ def main():
     con.execute("INSTALL spatial; LOAD spatial;")
 
     # ---- 1. 距離判定（県に依存しないので一度だけ読む）----
-    dist_cols = ", ".join(f"dist_{lab}_min" for lab, _ in NESTED)
+    dist_cols = ", ".join(f"dist_{lab}_m" for lab, _ in NESTED)
     out_cols = ", ".join(f"out500m_{lab}" for lab, _ in NESTED)
     con.execute(f"""create table road as
       select mesh_code, {dist_cols}, {out_cols} from read_parquet('{ROAD}')""")
@@ -226,7 +226,7 @@ def main():
         sel = ", ".join(f"r.out500m_{lab}" for lab, _ in NESTED)
         con.execute(f"""insert into cov
           select m.mesh_code, m.city_code, m.pop_65over, m.pop_total,
-                 {sel}, r.dist_{MAIN}_min, r.dist_S1_min
+                 {sel}, r.dist_{MAIN}_m, r.dist_S1_m
           from mesh m
           left join road r using (mesh_code)""")
         n, p65 = con.execute(
@@ -364,8 +364,8 @@ def main():
         mesh_out = ", ".join(f"c.out_{lab} as out500m_{lab}" for lab, _ in NESTED)
         con.execute(f"""copy (
           select c.mesh_code, k.city_code, m.lat, m.lng, c.pop_total, c.pop_65over,
-                 -- 最寄り店舗までの徒歩分（60m/分）。S1=スーパーのみ / S4=全カテゴリ
-                 c.dist_main as dist_S4_min, c.dist_super as dist_S1_min,
+                 -- 最寄り店舗までの道路距離 m。S1=スーパーのみ / S4=全カテゴリ
+                 c.dist_main as dist_S4_m, c.dist_super as dist_S1_m,
                  {mesh_out}
           from cov c
           join citymap k on c.city_code = k.raw_code
