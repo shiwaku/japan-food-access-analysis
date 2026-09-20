@@ -381,9 +381,11 @@
 <script>
 // ── PMTiles URL（ローカル開発時は ../output/ を使用してCORSを回避） ──
 const IS_LOCAL = (location.hostname === "localhost" || location.hostname === "127.0.0.1");
+// 差し替えは同じキーの上書きではなく版名を変える（v2: 2026-09-20、dmin → dsm/dcv）。
+// PMTiles は Range で読むので、上書きすると Cloudflare のキャッシュに新旧の断片が混ざる。
 const PMTILES_URL = IS_LOCAL
-  ? "../output/food_access_125m.pmtiles"
-  : "https://shi-works.com/pmtiles/japan-food-access-analysis/food_access_125m.pmtiles";
+  ? "../output/food_access_125m_v2.pmtiles"
+  : "https://shi-works.com/pmtiles/japan-food-access-analysis/food_access_125m_v2.pmtiles";
 
 // ── PMTiles プロトコル登録 ──
 const protocol = new pmtiles.Protocol();
@@ -485,8 +487,8 @@ map.on("load", () => {
     if (Number(p.out_sm) === 0) return 0;
     return 1;
   }
-  // dmin / dsm は最寄り店舗までの道路距離（分）。3.6km/h なので 1分 = 60m。
-  // 到達不能・道路距離が未定義のメッシュは null で来る。
+  // dsm / dcv は最寄りスーパー／最寄りコンビニ等（コンビニ・ドラッグストア・生鮮）までの
+  // 道路距離（分）。3.6km/h なので 1分 = 60m。到達不能・道路距離が未定義のメッシュは null で来る。
   function roadText(v) {
     if (v === undefined || v === null || v === "") return "到達不能";
     const min = Number(v);
@@ -500,8 +502,8 @@ map.on("load", () => {
     const p65 = p.p65 ? `${Number(p.p65).toLocaleString()}人` : "0人";
     return `<div style="font-size:0.82rem;line-height:1.6;min-width:200px">
       <div style="font-weight:700;color:${CAT_COLOR[code]};margin-bottom:4px">${CAT_LABEL[code]}</div>
-      <div>最寄り店舗まで：${roadText(p.dmin)}</div>
       <div>最寄りスーパーまで：${roadText(p.dsm)}</div>
+      <div>最寄りコンビニ等まで：${roadText(p.dcv)}</div>
       <div>人口（125m四方）：${pop}</div>
       <div>うち65歳以上：${p65}</div>
       <div style="margin-top:4px;color:#999;font-size:0.72rem">
@@ -650,10 +652,11 @@ async function searchAddress() {
           const p = features[0].properties;
           const code = Number(p.out_d) === 1 ? 2 : (Number(p.out_sm) === 0 ? 0 : 1);
           const info = CAT_INFO[code];
-          const dmin = (p.dmin === undefined || p.dmin === null || p.dmin === "")
+          const m = (v) => (v === undefined || v === null || v === "")
             ? "到達不能"
-            : `${Math.round(Number(p.dmin) * 60).toLocaleString()}m`;
-          const detail = `${info.desc}<br>最寄り店舗まで（道路距離）：${dmin}`;
+            : `${Math.round(Number(v) * 60).toLocaleString()}m`;
+          const detail = `${info.desc}<br>最寄りスーパーまで（道路距離）：${m(p.dsm)}`
+            + `<br>最寄りコンビニ等まで（道路距離）：${m(p.dcv)}`;
           showResult(info, detail);
           // 区分色に合わせてマーカーを更新
           searchMarker.remove();
