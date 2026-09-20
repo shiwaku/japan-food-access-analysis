@@ -7,5 +7,5 @@ tippecanoe \
   --coalesce-densest-as-needed \
   --force \
   -P \
-  -o output/food_access_125m.pmtiles \
-  output/food_access_125m.geojsonl
+  -o output/food_access_125m_v3.pmtiles \
+  output/food_access_125m_v3.geojsonl

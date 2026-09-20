@@ -330,7 +330,7 @@
   <div style="margin-top:8px;font-size:0.72rem;color:#999;line-height:1.45;">
     <b style="color:#666">対象店舗</b>：全国 122,249店。食料品スーパー・百貨店・総合スーパー 32,696、
     コンビニ 59,826、ドラッグストア 19,659、食肉・鮮魚・野菜果実小売業 10,068<br>
-    <b style="color:#666">距離</b>：道路ネットワーク上の徒歩距離（3.6km/h・Dijkstra）。直線距離ではない<br>
+    <b style="color:#666">距離</b>：メッシュ重心から店舗までの道路ネットワーク上の最短距離（Dijkstra）。直線距離ではなく、歩行速度・所要時間も使わない<br>
     ※ 条件は距離だけ。自動車の利用可否は掛けていないので「アクセス困難人口」ではない。
   </div>
 </div>
@@ -357,8 +357,8 @@
   <div id="assumptions">
     <dl>
       <dt>判定方法</dt>
-      <dd>道路ネットワーク上の徒歩距離500m以内に対象店舗があるか<br>
-          3.6km/h・Multi-source Dijkstra（到達不能は圏外）<br>
+      <dd>メッシュ重心から店舗までの道路ネットワーク上の最短距離が500m以内か<br>
+          Multi-source Dijkstra・重みは道路長（歩行速度・所要時間は使わない。到達不能は圏外）<br>
           直線距離でもメッシュ単位の存否でもない</dd>
       <dt>データ出典</dt>
       <dd>人口: 令和2年国勢調査 125mメッシュ（総務省統計局・e-Stat）<br>
@@ -381,11 +381,12 @@
 <script>
 // ── PMTiles URL（ローカル開発時は ../output/ を使用してCORSを回避） ──
 const IS_LOCAL = (location.hostname === "localhost" || location.hostname === "127.0.0.1");
-// 差し替えは同じキーの上書きではなく版名を変える（v2: 2026-09-20、dmin → dsm/dcv）。
-// PMTiles は Range で読むので、上書きすると Cloudflare のキャッシュに新旧の断片が混ざる。
+// 差し替えは同じキーの上書きではなく版名を変える（v2: dmin → dsm/dcv、v3: 徒歩分 → 道路距離 m。
+// いずれも 2026-09-20）。PMTiles は Range で読むので、上書きすると Cloudflare のキャッシュに
+// 新旧の断片が混ざる。
 const PMTILES_URL = IS_LOCAL
-  ? "../output/food_access_125m_v2.pmtiles"
-  : "https://shi-works.com/pmtiles/japan-food-access-analysis/food_access_125m_v2.pmtiles";
+  ? "../output/food_access_125m_v3.pmtiles"
+  : "https://shi-works.com/pmtiles/japan-food-access-analysis/food_access_125m_v3.pmtiles";
 
 // ── PMTiles プロトコル登録 ──
 const protocol = new pmtiles.Protocol();
@@ -424,12 +425,13 @@ const catCodeExpr = () => ["case",
   1
 ];
 // 集計パネルの数値。02_validate_access_difficulty.py の出力から手で写す
-// （ATP⑪ 122,249店・47県・65歳以上 35,314,481人。道路距離が未定義のメッシュは
-// 地図と同じく圏外に倒して数えている）。**再集計したらここも更新すること。**
+// （ATP⑪ 122,249店・47県・65歳以上 35,306,031人＝道路距離が定義できるメッシュの計。
+// 2026-09-20 道路距離 m 版）。**再集計したらここも更新すること。**
+//   sm  = 分母 − S1圏外（24,276,339）   cv = S1圏外 − S4圏外   out = S4圏外（15,058,980）
 const STATS = {
-  sm: "1,249万人（35.4%）",
-  cv: "915万人（25.9%）",
-  out: "1,368万人（38.7%）",
+  sm: "1,103万人（31.2%）",
+  cv: "922万人（26.1%）",
+  out: "1,506万人（42.7%）",
 };
 const CAT_LABEL = {
   0: "スーパーが500m以内",
@@ -488,12 +490,12 @@ map.on("load", () => {
     return 1;
   }
   // dsm / dcv は最寄りスーパー／最寄りコンビニ等（コンビニ・ドラッグストア・生鮮）までの
-  // 道路距離（分）。3.6km/h なので 1分 = 60m。到達不能・道路距離が未定義のメッシュは null で来る。
+  // 道路距離（m・整数）。到達不能・道路距離が未定義のメッシュは null で来る。
   function roadText(v) {
     if (v === undefined || v === null || v === "") return "到達不能";
-    const min = Number(v);
-    if (!isFinite(min)) return "到達不能";
-    return `${Math.round(min * 60).toLocaleString()}m（${min.toFixed(1)}分）`;
+    const m = Number(v);
+    if (!isFinite(m)) return "到達不能";
+    return `${Math.round(m).toLocaleString()}m`;
   }
 
   function makePopupHTML(p) {
@@ -654,7 +656,7 @@ async function searchAddress() {
           const info = CAT_INFO[code];
           const m = (v) => (v === undefined || v === null || v === "")
             ? "到達不能"
-            : `${Math.round(Number(v) * 60).toLocaleString()}m`;
+            : `${Math.round(Number(v)).toLocaleString()}m`;
           const detail = `${info.desc}<br>最寄りスーパーまで（道路距離）：${m(p.dsm)}`
             + `<br>最寄りコンビニ等まで（道路距離）：${m(p.dcv)}`;
           showResult(info, detail);

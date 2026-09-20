@@ -8,9 +8,17 @@
 
   ① 道路リンク（N13・walkモード）から scipy CSR グラフを構築
   ② 店舗を最近傍1道路ノードにスナップ（バス停と同じ扱い。駅の4象限スナップはしない）
-  ③ スーパーソースを足した Multi-source Dijkstra で全ノードの最短時間を得る
-  ④ アクセスリンク（L6＝125mメッシュ↔道路ノード）経由でメッシュ距離に変換
-  ⑤ walk 3.6km/h = 60m/分 で 500m = 8.33分 を閾値にする
+  ③ スーパーソースを足した Multi-source Dijkstra で全ノードの最短**距離（m）**を得る。
+     スーパーソース→店舗ノードの辺に**店舗座標からノードまでの直線距離**を持たせるので、
+     店舗そのものからの距離になる（中央35m・p99 133m。SNAP_OFFSET=0 で無効化できる）
+  ④ アクセスリンク（L6＝125mメッシュ↔道路ノード）の長さを足してメッシュ距離に変換
+  ⑤ 500m を閾値にする
+
+**重みは `dist_m`（道路長）で、所要時間・歩行速度は使わない**（2026-09-20 に切り替え）。
+ネットワークの `time_001min` は道路リンクが 3.6km/h、アクセスリンクが **5km/h** で刻まれて
+いて混在しており、時間で測るとメッシュ→道路の区間だけ約28%割引になっていた
+（時間版との差: S4 で 17,975 メッシュ・65歳以上 249,550 人が圏内→圏外）。
+-125 は時間で測っているので、ここは踏襲しない。
 
 なぜ道路距離だけで測るのか
 --------------------------
@@ -53,10 +61,11 @@ Dijkstra を回す**（4回・全国で約4分）。農水省の対象業種は�
 ----
   data/mesh_road_dist.parquet
     mesh_code
-    dist_S1_min / dist_S2_min / dist_S3_min / dist_S4_min   最寄り店舗までの徒歩分
-    out500m_S1  / out500m_S2  / out500m_S3  / out500m_S4    500m超か
-    dist_SO_min / out500m_SO   スーパー以外（convenience+drugstore+fresh_food）。地図の
-                               「最寄りコンビニ等まで」用。入れ子の外で、02 は使わない
+    dist_S1_m / dist_S2_m / dist_S3_m / dist_S4_m   メッシュ重心→最寄り店舗の道路距離 m
+                (アクセスリンク長 + 道路最短経路 + 店舗のスナップ距離)
+    out500m_S1 / out500m_S2 / out500m_S3 / out500m_S4   500m超か
+    dist_SO_m / out500m_SO   スーパー以外（convenience+drugstore+fresh_food）。地図の
+                             「最寄りコンビニ等まで」用。入れ子の外で、02 は使わない
   主指標は **S4**（全カテゴリ）。地図の緑／橙の区分は S1（スーパー）を使う。
 """
 import os
@@ -92,8 +101,10 @@ LINKS = os.path.join(NETWORK_DIR, "KSJ_N13-24_nationwide_walk_道路リンク.pa
 NODES = os.path.join(NETWORK_DIR, "KSJ_N13-24_nationwide_walk_道路ノード.parquet")
 ACCESS = os.path.join(NETWORK_DIR, "KSJ_N13-24_nationwide_walk_アクセスリンク_L6.parquet")
 
-# walk 3.6 km/h = 60 m/分。農水省の閾値は 500m。
-THRESHOLD_MIN = 500 / 60  # 8.33分
+# 農水省の閾値は 500m。距離（m）で直接切る（歩行速度は使わない）。
+THRESHOLD_M = 500.0
+# 店舗座標→スナップ先ノードの直線距離を距離に足すか（1=足す / 0=足さない）。
+SNAP_OFFSET = int(os.environ.get("SNAP_OFFSET", "1"))
 
 # 連結成分がこの規模未満のノードはスナップ対象から外す（-125 と同じ）
 MIN_COMPONENT = 1000
@@ -120,7 +131,7 @@ def build_graph(links):
     from scipy.sparse import csr_matrix
     n1 = links["node1"].astype(np.int64).to_numpy()
     n2 = links["node2"].astype(np.int64).to_numpy()
-    ws = links["time_001min"].astype(float).to_numpy() * 0.01  # 分単位
+    ws = links["dist_m"].astype(float).to_numpy()  # 道路長 m
 
     src = np.concatenate([n1, n2])
     dst = np.concatenate([n2, n1])
@@ -134,16 +145,22 @@ def build_graph(links):
     return unique, G
 
 
-def multisource_dijkstra(G, source_idxs):
-    """スーパーソースを足して全始点を同時投入する（-125 と同じ）。"""
+def multisource_dijkstra(G, source_idxs, source_w=None):
+    """スーパーソースを足して全始点を同時投入する（-125 と同じ）。
+
+    source_w を渡すとスーパーソース→始点の辺にその重み（m）を持たせる。店舗のスナップ距離を
+    ここに入れると、結果は「店舗座標からの距離」になる。None なら重み0（ノードからの距離）。
+    scipy の CSR は重み0の辺を陽に持てないので、0 は極小値に置き換える。
+    """
     from scipy.sparse import coo_matrix, csr_matrix
     from scipy.sparse import vstack as sp_vstack
     from scipy.sparse.csgraph import dijkstra as sp_dijkstra
 
     nv = G.shape[0]
+    w = np.zeros(len(source_idxs)) if source_w is None else np.asarray(source_w, dtype=float)
+    w = np.maximum(w, 1e-9)
     extra = coo_matrix(
-        (np.zeros(len(source_idxs)),
-         (np.zeros(len(source_idxs), dtype=np.int32), source_idxs.astype(np.int32))),
+        (w, (np.zeros(len(source_idxs), dtype=np.int32), source_idxs.astype(np.int32))),
         shape=(1, nv + 1)).tocsr()
     G_pad = csr_matrix((G.data, G.indices, G.indptr), shape=(nv, nv + 1))
     G_ext = sp_vstack([G_pad, extra], format="csr")
@@ -160,9 +177,17 @@ def snap_to_nodes(coords, node_coords, node_ids, unique):
     tree = KDTree(node_coords)
     _, snap_idx = tree.query(coords)
     nids = node_ids[snap_idx]
+    # スナップ距離（m）。等距円筒近似（この環境の DuckDB spheroid は使えないのと同じ理由で平面近似）
+    lat0 = np.deg2rad(coords[:, 0])
+    dy = (coords[:, 0] - node_coords[snap_idx, 0]) * 111_320.0
+    dx = (coords[:, 1] - node_coords[snap_idx, 1]) * 111_320.0 * np.cos(lat0)
+    off = np.hypot(dx, dy)
     pos = np.searchsorted(unique, nids)
     ok = (pos < len(unique)) & (unique[np.minimum(pos, len(unique) - 1)] == nids)
-    return np.unique(pos[ok].astype(np.int32))
+    # 同じノードに複数店舗が付いたら最短のスナップ距離を採る
+    df = pd.DataFrame({"pos": pos[ok].astype(np.int32), "off": off[ok]})
+    g = df.groupby("pos", as_index=False)["off"].min()
+    return g["pos"].to_numpy(), g["off"].to_numpy()
 
 
 def main():
@@ -179,9 +204,9 @@ def main():
     print(f"  店舗 {len(st):,} 件（うち supermarket {int((st['cat']=='supermarket').sum()):,}）")
 
     print("道路ネットワーク読み込み…")
-    links = pd.read_parquet(LINKS, columns=["node1", "node2", "time_001min"])
+    links = pd.read_parquet(LINKS, columns=["node1", "node2", "dist_m"])
     nodes = gpd.read_parquet(NODES)
-    access = pd.read_parquet(ACCESS, columns=["mesh_code", "road_node", "time_001min"])
+    access = pd.read_parquet(ACCESS, columns=["mesh_code", "road_node", "dist_m"])
     print(f"  リンク {len(links):,} / ノード {len(nodes):,} / アクセス {len(access):,}"
           f"  ({time.time()-t0:.0f}s)")
 
@@ -216,7 +241,7 @@ def main():
 
     mesh_codes = access["mesh_code"].astype(str).to_numpy()
     road_nids = access["road_node"].astype(np.int64).to_numpy()
-    acc_time = access["time_001min"].astype(float).to_numpy() * 0.01
+    acc_m = access["dist_m"].astype(float).to_numpy()
     pos = np.searchsorted(unique, road_nids)
     pos_clipped = np.minimum(pos, len(unique) - 1)
     valid = unique[pos_clipped] == road_nids
@@ -227,32 +252,33 @@ def main():
         sub = st[st["cat"].isin(cats)]
         coords = np.column_stack([sub["lat"].to_numpy(), sub["lng"].to_numpy()])
         print(f"{label}（{'+'.join(cats)}・{len(sub):,}店）: スナップ…")
-        idxs = snap_to_nodes(coords, node_coords, node_ids, unique)
-        print(f"  スナップ先ノード {len(idxs):,}  ({time.time()-t0:.0f}s)")
+        idxs, offs = snap_to_nodes(coords, node_coords, node_ids, unique)
+        print(f"  スナップ先ノード {len(idxs):,} / スナップ距離 中央 {np.median(offs):.0f}m・"
+              f"p99 {np.percentile(offs, 99):.0f}m  ({time.time()-t0:.0f}s)")
         print(f"{label}: Multi-source Dijkstra…")
-        dist_node = multisource_dijkstra(G, idxs)
+        dist_node = multisource_dijkstra(G, idxs, offs if SNAP_OFFSET else None)
         print(f"  完了  ({time.time()-t0:.0f}s)")
-        d = np.where(valid, dist_node[safe] + acc_time, np.inf)
-        result[f"dist_{label}_min"] = np.where(np.isfinite(d), np.round(d, 2), np.nan)
-        result[f"out500m_{label}"] = d > THRESHOLD_MIN
+        d = np.where(valid, dist_node[safe] + acc_m, np.inf)
+        result[f"dist_{label}_m"] = np.where(np.isfinite(d), np.round(d, 1), np.nan)
+        result[f"out500m_{label}"] = d > THRESHOLD_M
 
     df = pd.DataFrame(result)
     # 1メッシュに複数のアクセスリンクが張られることがあるので最小距離に畳む。
     # 到達不能は dist が NaN・out500m が True なので、min でどちらも正しく畳める
     # （NaN は min で無視され、True/False の min は False = 1つでも圏内なら圏内）。
-    agg = {f"dist_{lab}_min": (f"dist_{lab}_min", "min") for lab, _ in ALL_SETS}
+    agg = {f"dist_{lab}_m": (f"dist_{lab}_m", "min") for lab, _ in ALL_SETS}
     agg.update({f"out500m_{lab}": (f"out500m_{lab}", "min") for lab, _ in ALL_SETS})
     df = df.groupby("mesh_code", as_index=False).agg(**agg)
 
     # 入れ子なので S1 ⊇ S2 ⊇ S3 ⊇ S4 の順に距離は縮む。違反したら実装がおかしい。
     for (a, _), (b, _) in zip(NESTED, NESTED[1:]):
-        bad = int((df[f"dist_{b}_min"] > df[f"dist_{a}_min"] + 1e-9).sum())
+        bad = int((df[f"dist_{b}_m"] > df[f"dist_{a}_m"] + 1e-6).sum())
         print(f"  検算 {a} ≥ {b}: 違反 {bad} 件{'' if bad == 0 else '  ⚠'}")
     # SO はスーパー以外の全部なので、S1 と SO の近い方が S4 に一致するはず（NaN は無限大扱い）。
-    m = np.fmin(df["dist_S1_min"].to_numpy(), df["dist_SO_min"].to_numpy())
-    s4 = df["dist_S4_min"].to_numpy()
+    m = np.fmin(df["dist_S1_m"].to_numpy(), df["dist_SO_m"].to_numpy())
+    s4 = df["dist_S4_m"].to_numpy()
     bad = int((~np.isclose(np.nan_to_num(m, nan=np.inf), np.nan_to_num(s4, nan=np.inf),
-                           atol=1e-6)).sum())
+                           atol=1e-3)).sum())
     print(f"  検算 min(S1, SO) == S4: 違反 {bad} 件{'' if bad == 0 else '  ⚠'}")
 
     os.makedirs(os.path.dirname(OUT) or ".", exist_ok=True)
