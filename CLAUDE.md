@@ -224,6 +224,9 @@ walk 3.6km/h = 60m/分、500m = 8.33分。到達不能は圏外に倒し、ア�
 - **駅の4象限スナップはしない**（線状障害物が店舗には無いため。-125 のバス停と同じ最近傍1ノード）。
 - 出力は `mesh_code` / `dist_S1..S4_min` / `out500m_S1..S4`。**主指標は S4（全カテゴリ）**、
   地図の緑／橙の切り分けは S1（スーパー）。
+  ほかに入れ子の外の補助集合 **`SO`（スーパー以外＝convenience+drugstore+fresh_food）** を
+  同じ Dijkstra で出す（`dist_SO_min` / `out500m_SO`）。地図の「最寄りコンビニ等まで」専用で、
+  `02` の集計には使わない。`min(S1, SO) == S4` を検算する。5集合で全国約4分。
 - **分母は道路距離が定義できるメッシュに限る**（`out500m_S4 is not null`）。アクセスリンクが
   無いメッシュは出力に現れないので、分母をそろえないと率が濁る（全国1,853メッシュ・
   65歳以上 8,450人＝0.024%）。
@@ -238,8 +241,12 @@ walk 3.6km/h = 60m/分、500m = 8.33分。到達不能は圏外に倒し、ア�
 - **区分はタイルに焼いていない**。`out_d`（全カテゴリ500m超）と `out_sm`（スーパー500m超）から
   MapLibre の式で導く（`catCodeExpr()`）ので、色や区分の定義を変えるだけならタイルを
   作り直さなくてよい。**プロパティを増やす／変えるときは作り直しが要る**。
-- タイルのプロパティは `out_d` / `out_sm` / `dmin`（最寄り分）/ `dsm`（最寄りスーパー分）。
-  `out_a` / `out_c` / `sm` / `cv` / `dg` / `fr` は**廃止した**。
+- タイルのプロパティは `out_d` / `out_sm` / `dsm`（最寄りスーパー分）/ `dcv`（最寄りコンビニ等分）。
+  `dcv` は `04` の補助集合 **SO（convenience+drugstore+fresh_food）** の距離で、`03` が
+  `04` の parquet を `mesh_code` で結合して焼く（`02` の出力には無い）。
+  ポップアップは「最寄りスーパーまで／最寄りコンビニ等まで」の2行（2026-09-20）。
+  `dmin`（全カテゴリの最寄り分）は S1 と SO の近い方と同じなので**廃止**。
+  `out_a` / `out_c` / `sm` / `cv` / `dg` / `fr` も**廃止した**。
 - 集計パネルの数値は `STATS` にハードコードしてある。**再集計したら更新すること**。
   **凡例と出典の店舗数（合計 122,249・業態別4つ）もハードコード**。店舗レイヤを差し替えたら
   `select cat, count(*) from '<FOOD_STORES>' group by 1` で出し直して両方直す。
@@ -249,13 +256,17 @@ walk 3.6km/h = 60m/分、500m = 8.33分。到達不能は圏外に倒し、ア�
 - PMTiles は `-Z4 -z13 --no-tile-size-limit --no-feature-limit --coalesce-densest-as-needed -P`
   で -125 と同じ。2,814,449 ポリゴンで約400MB。**gitignore なので公開用は Cloudflare R2** に置く。
 - **公開 PMTiles の置き場は R2 バケット `shi-works` の
-  `pmtiles/japan-food-access-analysis/food_access_125m.pmtiles`**（配信 URL は
-  `https://shi-works.com/pmtiles/japan-food-access-analysis/…`）。2026-09-20 に初回アップロード。
+  `pmtiles/japan-food-access-analysis/food_access_125m_v2.pmtiles`**（配信 URL は
+  `https://shi-works.com/pmtiles/japan-food-access-analysis/…`）。2026-09-20 に初回アップロード
+  （`food_access_125m.pmtiles`）、同日 `dmin`→`dsm`/`dcv` の変更で **`_v2` に版替え**。
+  旧 `food_access_125m.pmtiles` は戻せるように残してある。
   旧 Xserver（`shiworks2.xsrv.jp`）は 2026-09-06 に R2 へ移行済みなので**使わない**。
   手元からは AWS CLI のプロファイル `r2-shiworks` で入れる（手順・CORS・注意点は
   `C:/Users/yshiw/Documents/xserver-cleanup/R2-STRUCTURE.md`）。
-  **差し替えは同じキーに上書きしてから Cloudflare のキャッシュをパージする**。PMTiles は Range で
-  読むので新旧の断片が混ざると壊れる。
+  **差し替えは同じキーに上書きせず、ファイル名の版を上げて（`_v2`, `_v3`…）ビューワの
+  `PMTILES_URL` を切り替える**（`03` の `PMTILES_NAME` で出力名を変える）。PMTiles は Range で
+  読むので、上書きすると Cloudflare のキャッシュに新旧の断片が混ざって壊れる。パージの手順は
+  xserver-cleanup にも無い。旧版は参照が切れたのを確認してから消す（消さなくてもよい）。
   隣の `pmtiles/food-access/food_desert_125m.pmtiles` は japan-mobility-ease-diagnosis の別物。触らない。
 - **地図の名前は「食料品店アクセスマップ」**。農水省の「食料品アクセスマップ」とは別物
   （こちらは店舗までの距離だけを測る）。出典欄で農水省の製品名を書くときだけ元の名前を使う。
@@ -264,6 +275,12 @@ walk 3.6km/h = 60m/分、500m = 8.33分。到達不能は圏外に倒し、ア�
   後続が全部ブロックされて地図が固まる。
 - ローカル確認は `python serve.py 8080` → http://localhost:8080/docs/
   （PMTiles は Range リクエストが要るので `python -m http.server` では不可）。
+- **店舗の点はローカル開発時だけ表示できる**（2026-09-20）。`serve.py` が `/dev/stores.geojson` で
+  `FOOD_STORES`（既定 `input/food_store_master_atp_super.parquet`）を GeoJSON にして返し、
+  ビューワは `location.hostname` が localhost のときだけこれを読んで「店舗」ボタンを出す
+  （z10 以上・業態別の色・クリックで店名）。**公開ページには一切出ない**。店舗レイヤは
+  japan-food-store-master の成果物で再配布可否が元 repo 依存なので、公開用タイルにも焼かない。
+  別の店舗レイヤを見たいときは `FOOD_STORES=input/xxx.parquet python serve.py 8080`。
 
 ## 落とし穴・環境メモ
 

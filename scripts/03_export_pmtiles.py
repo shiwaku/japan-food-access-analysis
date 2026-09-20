@@ -21,16 +21,20 @@ mesh500m_out_*.parquet → GeoJSONL → PMTiles（tippecanoe）
 --------------------------------------------
   out_d   全カテゴリ（S4）まで道路距離500m超か  ← 地図の赤
   out_sm  スーパー（S1）まで道路距離500m超か    ← 緑／橙の切り分け
-  dmin    最寄り店舗までの徒歩分（S4）
   dsm     最寄りスーパーまでの徒歩分（S1）
+  dcv     最寄りコンビニ等（convenience+drugstore+fresh_food = SO）までの徒歩分
+          （2026-09-20 追加。04 の parquet を mesh_code で結合して取る。02 の出力には無い）
 
 かつて載せていた `out_a`（同一500mメッシュの店舗存否）・`out_c`（直線500m）・
-`sm`/`cv`/`dg`/`fr`（同一メッシュの業態）は**廃止した**。距離判定は道路距離1本にしたため。
+`sm`/`cv`/`dg`/`fr`（同一メッシュの業態）・`dmin`（全カテゴリの最寄り分。スーパーと
+コンビニ等の2本にしたので不要）は**廃止した**。距離判定は道路距離1本にしたため。
 
 使い方
 ------
   python scripts/03_export_pmtiles.py                       # 既定 data/mesh500m_out_47県.parquet
   MESH_OUT=data/mesh500m_out_ATP⑪_47県.parquet python scripts/03_export_pmtiles.py
+  ROAD_DIST=data/mesh_road_dist.parquet                      # dcv の出所（既定）。04 の出力
+  PMTILES_NAME=food_access_125m_v2                           # 出力ファイル名（既定 food_access_125m）
   bash output/make_pmtiles.sh                               # tippecanoe（WSL 等）
 """
 import os
@@ -39,12 +43,16 @@ import sys
 
 import duckdb
 
-# 02_validate_access_difficulty.py の出力。道路距離の判定も距離もここに入っているので、
-# 04 の parquet を別途結合する必要は無い。
+# 02_validate_access_difficulty.py の出力。判定（out500m_*）とスーパー／全体の距離はここに入っている。
 SRC = os.environ.get("MESH_OUT", "data/mesh500m_out_47県.parquet")
+# 04 の出力。「最寄りコンビニ等まで」（dist_SO_min）は 02 の出力に無いのでここから結合する。
+ROAD = os.environ.get("ROAD_DIST", "data/mesh_road_dist.parquet")
 OUT_DIR = "output"
-GEOJSONL = f"{OUT_DIR}/food_access_125m.geojsonl"
-PMTILES = f"{OUT_DIR}/food_access_125m.pmtiles"
+# 公開側は同じキーに上書きせず版名を変える（Range の新旧断片が混ざる事故を避ける。
+# Cloudflare のパージ手順が無いため）。ビューワの PMTILES_URL も合わせて変える。
+NAME = os.environ.get("PMTILES_NAME", "food_access_125m")
+GEOJSONL = f"{OUT_DIR}/{NAME}.geojsonl"
+PMTILES = f"{OUT_DIR}/{NAME}.pmtiles"
 LAYER = "food_access"
 
 # 125mメッシュの半セル。重心 ± これでポリゴンの四隅になる。
@@ -69,6 +77,8 @@ def main():
     if not os.path.exists(SRC):
         sys.exit(f"入力が無い: {SRC}"
                  "（先に 02_validate_access_difficulty.py を実行）")
+    if not os.path.exists(ROAD):
+        sys.exit(f"入力が無い: {ROAD}（先に 04_road_distance.py を実行）")
     os.makedirs(OUT_DIR, exist_ok=True)
     con = duckdb.connect()
 
@@ -76,6 +86,11 @@ def main():
         f"select count(*), count(*) filter (where pop_total > 0) "
         f"from read_parquet('{SRC}')").fetchone()
     print(f"入力 {SRC}: {n_all:,} メッシュ（うち人口>0 は {n_pop:,}）")
+    cols = [r[0] for r in con.execute(f"describe select * from read_parquet('{ROAD}')").fetchall()]
+    if "dist_SO_min" not in cols:
+        sys.exit(f"{ROAD} に dist_SO_min が無い。04_road_distance.py を回し直すこと（2026-09-20 追加）")
+    n_road = con.execute(f"select count(*) from read_parquet('{ROAD}')").fetchone()[0]
+    print(f"道路距離 {ROAD}: {n_road:,} メッシュ（dcv = dist_SO_min）")
 
     print(f"GeoJSONL 出力中 → {GEOJSONL} …")
     con.execute(f"""
@@ -100,11 +115,12 @@ COPY (
       -- スーパー（S1）まで500m超か。緑／橙の切り分けに使う。
       'out_sm': CASE WHEN coalesce(s.out500m_S1, true) THEN 1 ELSE 0 END,
       -- 最寄りまでの徒歩分（60m/分）。到達不能・未定義は null
-      'dmin': round(s.dist_S4_min, 1),
-      'dsm':  round(s.dist_S1_min, 1)
+      'dsm': round(s.dist_S1_min, 1),
+      'dcv': round(r.dist_SO_min, 1)
     }}
   }}) AS j
   FROM read_parquet('{SRC}') s
+  LEFT JOIN read_parquet('{ROAD}') r USING (mesh_code)
   WHERE s.pop_total > 0
 ) TO '{GEOJSONL}' (FORMAT csv, HEADER false, QUOTE '', DELIMITER E'\\t');
 """)

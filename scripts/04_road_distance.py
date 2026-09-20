@@ -55,6 +55,8 @@ Dijkstra を回す**（4回・全国で約4分）。農水省の対象業種は�
     mesh_code
     dist_S1_min / dist_S2_min / dist_S3_min / dist_S4_min   最寄り店舗までの徒歩分
     out500m_S1  / out500m_S2  / out500m_S3  / out500m_S4    500m超か
+    dist_SO_min / out500m_SO   スーパー以外（convenience+drugstore+fresh_food）。地図の
+                               「最寄りコンビニ等まで」用。入れ子の外で、02 は使わない
   主指標は **S4**（全カテゴリ）。地図の緑／橙の区分は S1（スーパー）を使う。
 """
 import os
@@ -104,6 +106,13 @@ NESTED = [
     ("S3", ["supermarket", "convenience", "drugstore"]),
     ("S4", ["supermarket", "convenience", "drugstore", "fresh_food"]),
 ]
+# 入れ子の外に置く補助集合。地図のポップアップで「最寄りコンビニ等まで」を出すため
+# （S2〜S4 はスーパー込みなので、スーパーが最寄りだとコンビニ等の距離が分からない）。
+# 02 の集計・カテゴリ感度には使わない。min(S1, SO) == S4 が成り立つ。
+EXTRA = [
+    ("SO", ["convenience", "drugstore", "fresh_food"]),
+]
+ALL_SETS = NESTED + EXTRA
 
 
 def build_graph(links):
@@ -214,7 +223,7 @@ def main():
     safe = np.where(valid, pos_clipped, 0)
 
     result = {"mesh_code": mesh_codes}
-    for label, cats in NESTED:
+    for label, cats in ALL_SETS:
         sub = st[st["cat"].isin(cats)]
         coords = np.column_stack([sub["lat"].to_numpy(), sub["lng"].to_numpy()])
         print(f"{label}（{'+'.join(cats)}・{len(sub):,}店）: スナップ…")
@@ -231,19 +240,25 @@ def main():
     # 1メッシュに複数のアクセスリンクが張られることがあるので最小距離に畳む。
     # 到達不能は dist が NaN・out500m が True なので、min でどちらも正しく畳める
     # （NaN は min で無視され、True/False の min は False = 1つでも圏内なら圏内）。
-    agg = {f"dist_{lab}_min": (f"dist_{lab}_min", "min") for lab, _ in NESTED}
-    agg.update({f"out500m_{lab}": (f"out500m_{lab}", "min") for lab, _ in NESTED})
+    agg = {f"dist_{lab}_min": (f"dist_{lab}_min", "min") for lab, _ in ALL_SETS}
+    agg.update({f"out500m_{lab}": (f"out500m_{lab}", "min") for lab, _ in ALL_SETS})
     df = df.groupby("mesh_code", as_index=False).agg(**agg)
 
     # 入れ子なので S1 ⊇ S2 ⊇ S3 ⊇ S4 の順に距離は縮む。違反したら実装がおかしい。
     for (a, _), (b, _) in zip(NESTED, NESTED[1:]):
         bad = int((df[f"dist_{b}_min"] > df[f"dist_{a}_min"] + 1e-9).sum())
         print(f"  検算 {a} ≥ {b}: 違反 {bad} 件{'' if bad == 0 else '  ⚠'}")
+    # SO はスーパー以外の全部なので、S1 と SO の近い方が S4 に一致するはず（NaN は無限大扱い）。
+    m = np.fmin(df["dist_S1_min"].to_numpy(), df["dist_SO_min"].to_numpy())
+    s4 = df["dist_S4_min"].to_numpy()
+    bad = int((~np.isclose(np.nan_to_num(m, nan=np.inf), np.nan_to_num(s4, nan=np.inf),
+                           atol=1e-6)).sum())
+    print(f"  検算 min(S1, SO) == S4: 違反 {bad} 件{'' if bad == 0 else '  ⚠'}")
 
     os.makedirs(os.path.dirname(OUT) or ".", exist_ok=True)
     df.to_parquet(OUT, index=False, compression="zstd")
     print(f"\n出力: {OUT}（{len(df):,} メッシュ）  ({time.time()-t0:.0f}s)")
-    for lab, cats in NESTED:
+    for lab, cats in ALL_SETS:
         n_out = int(df[f"out500m_{lab}"].sum())
         print(f"  {lab} {'+'.join(cats):48s} 圏外 {n_out:>9,} = {n_out/len(df)*100:5.1f}%")
 
