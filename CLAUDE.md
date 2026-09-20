@@ -245,7 +245,16 @@ walk 3.6km/h = 60m/分、500m = 8.33分。到達不能は圏外に倒し、ア�
   **内部スクロールを持つパネルに backdrop-filter を掛けると実GPUで合成不具合（白化・欠け）**が出る
   （japan-food-store-master の CLAUDE.md 既知の落とし穴）。-125 は掛けているが踏襲しない。
 - PMTiles は `-Z4 -z13 --no-tile-size-limit --no-feature-limit --coalesce-densest-as-needed -P`
-  で -125 と同じ。2,814,449 ポリゴンで約400MB。**gitignore なので公開時は外部ホスティング**に置く。
+  で -125 と同じ。2,814,449 ポリゴンで約400MB。**gitignore なので公開用は Cloudflare R2** に置く。
+- **公開 PMTiles の置き場は R2 バケット `shi-works` の
+  `pmtiles/japan-food-access-analysis/food_access_125m.pmtiles`**（配信 URL は
+  `https://shi-works.com/pmtiles/japan-food-access-analysis/…`）。2026-09-20 に初回アップロード。
+  旧 Xserver（`shiworks2.xsrv.jp`）は 2026-09-06 に R2 へ移行済みなので**使わない**。
+  手元からは AWS CLI のプロファイル `r2-shiworks` で入れる（手順・CORS・注意点は
+  `C:/Users/yshiw/Documents/xserver-cleanup/R2-STRUCTURE.md`）。
+  **差し替えは同じキーに上書きしてから Cloudflare のキャッシュをパージする**。PMTiles は Range で
+  読むので新旧の断片が混ざると壊れる。
+  隣の `pmtiles/food-access/food_desert_125m.pmtiles` は japan-mobility-ease-diagnosis の別物。触らない。
 - **地図の名前は「食料品店アクセスマップ」**。農水省の「食料品アクセスマップ」とは別物
   （こちらは店舗までの距離だけを測る）。出典欄で農水省の製品名を書くときだけ元の名前を使う。
 - **`serve.py` は `ThreadingHTTPServer` でないと使い物にならない。** PMTiles は並列に大量の
