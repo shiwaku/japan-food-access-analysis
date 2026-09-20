@@ -95,6 +95,25 @@
     }
     #view-toggle:hover { background: rgba(240,240,235,0.97); }
 
+    /* ── 店舗トグル（ローカル開発専用。serve.py の /dev/stores.geojson が読めたときだけ表示） ── */
+    #stores-toggle {
+      display: none;
+      position: absolute;
+      top: 14px; right: 374px; z-index: 20;
+      background: rgba(255,255,252,0.94);
+      border: 1px solid rgba(0,0,0,0.1);
+      border-radius: 10px; padding: 8px 14px;
+      font-size: 0.82rem; font-weight: 600; color: #333;
+      cursor: pointer; backdrop-filter: blur(8px);
+      box-shadow: 0 2px 12px rgba(0,0,0,0.12);
+      white-space: nowrap;
+    }
+    #stores-toggle.available { display: block; }
+    #stores-toggle.on { background: #333; color: #fff; border-color: #333; }
+    #stores-legend { display: none; margin-top: 8px; padding-top: 8px; border-top: 1px dashed rgba(0,0,0,0.12); }
+    #stores-legend.on { display: block; }
+    #stores-legend .legend-dot { border-radius: 50%; width: 10px; height: 10px; border: 1.5px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,0.25); }
+
     /* ── 凡例・集計・現在地トグルボタン（スマホのみ表示） ── */
     #legend-toggle, #stats-toggle, #geolocate-toggle { display: none; }
 
@@ -236,6 +255,14 @@
         box-shadow: 0 2px 8px rgba(0,0,0,0.1);
         font-size: 0.82rem;
       }
+      #stores-toggle {
+        width: 52px; justify-content: center; text-align: center;
+        padding: 6px 0; box-sizing: border-box;
+        top: max(172px, calc(env(safe-area-inset-top) + 162px));
+        right: 14px; border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        font-size: 0.82rem;
+      }
       #geolocate-toggle {
         display: flex; align-items: center;
         position: absolute;
@@ -293,6 +320,13 @@
   <div class="legend-item"><div class="legend-dot" style="background:#34d399"></div>スーパーが500m以内</div>
   <div class="legend-item"><div class="legend-dot" style="background:#fb923c"></div>スーパーは500m超、コンビニ等が500m以内</div>
   <div class="legend-item"><div class="legend-dot" style="background:#f43f5e"></div>どの店も500m超</div>
+  <div id="stores-legend">
+    <div style="font-size:0.72rem;color:#666;margin-bottom:2px"><b>店舗（ローカル表示のみ・z10以上）</b></div>
+    <div class="legend-item"><div class="legend-dot" style="background:#1d4ed8"></div>スーパー・百貨店・総合スーパー</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#7c3aed"></div>コンビニ</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#0f766e"></div>ドラッグストア</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#b45309"></div>食肉・鮮魚・野菜果実</div>
+  </div>
   <div style="margin-top:8px;font-size:0.72rem;color:#999;line-height:1.45;">
     <b style="color:#666">対象店舗</b>：全国 122,249店。食料品スーパー・百貨店・総合スーパー 32,696、
     コンビニ 59,826、ドラッグストア 19,659、食肉・鮮魚・野菜果実小売業 10,068<br>
@@ -303,6 +337,7 @@
 <button id="legend-toggle">凡例</button>
 <button id="stats-toggle">集計</button>
 <button id="view-toggle">3D</button>
+<button id="stores-toggle" title="店舗レイヤ（ローカル開発専用）">店舗</button>
 <button id="geolocate-toggle">📍</button>
 
 <div id="stats">
@@ -345,7 +380,8 @@
 
 <script>
 // ── PMTiles URL（ローカル開発時は ../output/ を使用してCORSを回避） ──
-const PMTILES_URL = (location.hostname === "localhost" || location.hostname === "127.0.0.1")
+const IS_LOCAL = (location.hostname === "localhost" || location.hostname === "127.0.0.1");
+const PMTILES_URL = IS_LOCAL
   ? "../output/food_access_125m.pmtiles"
   : "https://shi-works.com/pmtiles/japan-food-access-analysis/food_access_125m.pmtiles";
 
@@ -496,7 +532,81 @@ map.on("load", () => {
     pinned = true;
     popup.setLngLat(e.lngLat).setHTML(makePopupHTML(e.features[0].properties)).addTo(map);
   });
+
+  if (IS_LOCAL) setupLocalStores(popup, () => { pinned = true; });
 });
+
+// ── 店舗レイヤ（ローカル開発専用） ──
+// serve.py の /dev/stores.geojson（FOOD_STORES の parquet → GeoJSON）を読んで点で描く。
+// 公開ページには出さない: 店舗レイヤは japan-food-store-master の成果物で、再配布可否が
+// 元 repo の記載に依存するため。localhost 以外ではこの関数は呼ばれない。
+const STORE_CAT = {
+  supermarket: { label: "スーパー・百貨店・総合スーパー", color: "#1d4ed8" },
+  convenience: { label: "コンビニ",                     color: "#7c3aed" },
+  drugstore:   { label: "ドラッグストア",               color: "#0f766e" },
+  fresh_food:  { label: "食肉・鮮魚・野菜果実小売業",   color: "#b45309" },
+};
+async function setupLocalStores(popup, pin) {
+  const btn = document.getElementById("stores-toggle");
+  const lgd = document.getElementById("stores-legend");
+  let geojson;
+  try {
+    const res = await fetch("/dev/stores.geojson", { cache: "no-store" });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    geojson = await res.json();
+  } catch (err) {
+    console.warn("[dev] 店舗レイヤは読めませんでした（python serve.py で起動しているか、FOOD_STORES があるか）:", err);
+    return;
+  }
+  map.addSource("stores", { type: "geojson", data: geojson });
+  const color = ["match", ["get", "cat"],
+    "supermarket", STORE_CAT.supermarket.color,
+    "convenience", STORE_CAT.convenience.color,
+    "drugstore",   STORE_CAT.drugstore.color,
+    "fresh_food",  STORE_CAT.fresh_food.color,
+    "#444"];
+  map.addLayer({
+    id: "stores-pt",
+    type: "circle",
+    source: "stores",
+    minzoom: 10,
+    layout: { visibility: "none" },
+    paint: {
+      "circle-color": color,
+      "circle-radius": ["interpolate", ["linear"], ["zoom"], 10, 2.5, 13, 5, 16, 8],
+      "circle-stroke-color": "#fff",
+      "circle-stroke-width": ["interpolate", ["linear"], ["zoom"], 10, 0.6, 14, 1.5],
+      "circle-opacity": 0.95,
+    }
+  });
+  const storeHTML = (p) => {
+    const c = STORE_CAT[p.cat] || { label: p.cat, color: "#444" };
+    const esc = (t) => String(t ?? "").replace(/[&<>"]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[m]));
+    return `<div style="font-size:0.82rem;line-height:1.6;min-width:180px">
+      <div style="font-weight:700;color:${c.color};margin-bottom:2px">${c.label}</div>
+      <div>${esc(p.name) || "（名称なし）"}</div>
+      ${p.brand ? `<div style="color:#777;font-size:0.75rem">${esc(p.brand)}</div>` : ""}
+    </div>`;
+  };
+  // 店舗のクリックはメッシュのクリックより後に登録されるので、同じ点で両方発火しても店舗が勝つ
+  map.on("click", "stores-pt", (e) => {
+    pin();
+    popup.setLngLat(e.features[0].geometry.coordinates).setHTML(storeHTML(e.features[0].properties)).addTo(map);
+  });
+  map.on("mouseenter", "stores-pt", () => { map.getCanvas().style.cursor = "pointer"; });
+  map.on("mouseleave", "stores-pt", () => { map.getCanvas().style.cursor = ""; });
+
+  let on = false;
+  const apply = () => {
+    map.setLayoutProperty("stores-pt", "visibility", on ? "visible" : "none");
+    btn.classList.toggle("on", on);
+    lgd.classList.toggle("on", on);
+  };
+  btn.addEventListener("click", () => { on = !on; apply(); });
+  btn.classList.add("available");
+  btn.title = `店舗レイヤ（ローカル開発専用・${geojson.features.length.toLocaleString()}店）`;
+  console.info(`[dev] 店舗レイヤ ${geojson.features.length.toLocaleString()}店を読み込みました。「店舗」ボタンで表示。`);
+}
 
 // ── 住所検索 ──
 const CAT_INFO = {

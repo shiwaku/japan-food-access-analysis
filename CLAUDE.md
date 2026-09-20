@@ -264,6 +264,12 @@ walk 3.6km/h = 60m/分、500m = 8.33分。到達不能は圏外に倒し、ア�
   後続が全部ブロックされて地図が固まる。
 - ローカル確認は `python serve.py 8080` → http://localhost:8080/docs/
   （PMTiles は Range リクエストが要るので `python -m http.server` では不可）。
+- **店舗の点はローカル開発時だけ表示できる**（2026-09-20）。`serve.py` が `/dev/stores.geojson` で
+  `FOOD_STORES`（既定 `input/food_store_master_atp_super.parquet`）を GeoJSON にして返し、
+  ビューワは `location.hostname` が localhost のときだけこれを読んで「店舗」ボタンを出す
+  （z10 以上・業態別の色・クリックで店名）。**公開ページには一切出ない**。店舗レイヤは
+  japan-food-store-master の成果物で再配布可否が元 repo 依存なので、公開用タイルにも焼かない。
+  別の店舗レイヤを見たいときは `FOOD_STORES=input/xxx.parquet python serve.py 8080`。
 
 ## 落とし穴・環境メモ
 
