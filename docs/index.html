@@ -108,7 +108,7 @@
     #map-controls button:hover { background: rgba(240,240,235,0.97); }
     #stores-toggle { display: none; }
     #stores-toggle.available { display: flex; }
-    #stores-toggle.on { background: #333; color: #fff; border-color: #333; }
+    #map-controls button.on { background: #333; color: #fff; border-color: #333; }
     #stores-legend { display: none; margin-top: 8px; padding-top: 8px; border-top: 1px dashed rgba(0,0,0,0.12); }
     #stores-legend.on { display: block; }
     #stores-legend .legend-dot { border-radius: 50%; width: 10px; height: 10px; border: 1.5px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,0.25); }
@@ -731,7 +731,9 @@ document.getElementById("view-toggle").addEventListener("click", () => {
     is3D ? ["*", ["coalesce", ["get", "pop"], 0], 5] : 0
   );
   map.setPaintProperty("food-fill", "fill-extrusion-opacity", is3D ? OPACITY_3D : OPACITY_2D);
-  document.getElementById("view-toggle").textContent = is3D ? "2D" : "3D";
+  // ラベルは "3D" のまま。**状態は黒背景で示す**（店舗ボタンと揃える。
+  // ラベルを 2D に入れ替えると、黒い「2D」が 3D 表示中を指すことになって読めない）
+  document.getElementById("view-toggle").classList.toggle("on", is3D);
 });
 
 // ── 集計パネルの数値 ──
