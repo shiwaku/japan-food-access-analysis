@@ -42,7 +42,8 @@ docs/
 input/     店舗レイヤの置き場（.gitignore。japan-food-store-master の parquet）
 data/      メッシュ人口・境界・農水省表5（.gitignore。全部スクリプトが自動取得）
 output/    市区町村別・都道府県別・カテゴリ感度の CSV（追跡する）
-           **現行スキーマの3本だけ置く**。変種Aで測った当時の20本は 2026-08-28 に削除し、
+           **現行スキーマの2系統6本だけ置く**（`_ATP⑪_47県` = 内部の最良推計、
+           `_公開可能_47県` = 地図で公開している推計）。変種Aで測った当時の20本は 2026-08-28 に削除し、
            集計値を docs の付録A に転記した（生データは git 履歴から取る）。
            スキーマ違いを混在させないこと。
 ```
@@ -149,6 +150,28 @@ output/    市区町村別・都道府県別・カテゴリ感度の CSV（追�
 意味が違う（あちらは「同一メッシュに1件でもあるか」なので店舗数の多い業態が有利に出やすい）。
 
 入れ子なので S1 ≥ S2 ≥ S3 ≥ S4 の順に距離が縮む。`04` が検算し、`02` も逆転を警告する。
+
+## ★ 公開するのは「公開可能レイヤ」の推計（2026-09-21）
+
+**地図（`docs/index.html` → PMTiles v4）は Overture Places ＋ 食品営業許可オープンデータの
+124,970店で作る。** ATP 基準マスターは自前クロール38チェーンが再配布不可で公開物に載せられないため
+（japan-food-store-master の `docs/sources/検証_公開可能マスター_Overture_OSM_許可.md`）。
+**ODbL を避けるため OSM も外してある**（`food_store_master_public_noosm.parquet`）。
+
+47県・道路距離での実測は **ATP基準とほぼ同等**なので、公開値としてこれを使う。
+
+| レイヤ | 店舗数 | 地方部 r | 地方部 圏外率 | 地方部 比>1 | 公開 |
+|---|---:|---:|---:|---:|---|
+| ATP⑪（下表の推計・内部用） | 122,249 | 0.2472 | 56.3% | 21 | 不可 |
+| **公開可能（Overture＋許可）** | **124,970** | **0.2490** | **56.5%** | **19** | **可** |
+
+公開可能レイヤの全国値: **圏外65歳以上 15,237,604（43.2%）/ 総人口 47,086,177（37.4%）**、
+スーパー圏外 23,997,021（68.0%）、比 0.593、r 0.336、比>1 113件。
+ビューワの `STATS`（1,131万 / 876万 / 1,524万）と凡例の店舗数はこの値。
+
+- 内部の最良推計は引き続き ATP⑪（下表）。**2系統が並存する**ので、数字を引くときは
+  どちらのレイヤのものか必ず確かめること。
+- `serve.py` の店舗レイヤ既定も `food_store_master_public_noosm.parquet` に変えた。
 
 ## ★ 47県の推計値（ATP⑪ 122,249店・1,740市区町村・2026-08-28）
 
@@ -281,10 +304,12 @@ OUT_SUFFIX=_ATP⑪ python scripts/02_validate_access_difficulty.py 高知県 島
 - PMTiles は `-Z4 -z13 --no-tile-size-limit --no-feature-limit --coalesce-densest-as-needed -P`
   で -125 と同じ。2,814,449 ポリゴンで約400MB。**gitignore なので公開用は Cloudflare R2** に置く。
 - **公開 PMTiles の置き場は R2 バケット `shi-works` の
-  `pmtiles/japan-food-access-analysis/food_access_125m_v3.pmtiles`**（配信 URL は
+  `pmtiles/japan-food-access-analysis/food_access_125m_v4.pmtiles`**（配信 URL は
   `https://shi-works.com/pmtiles/japan-food-access-analysis/…`）。2026-09-20 に初回アップロード
   （`food_access_125m.pmtiles`）、同日 `dmin`→`dsm`/`dcv` で `_v2`、同日 徒歩分→道路距離 m で
-  **`_v3` に版替え**。旧版は戻せるように残してある（v1: 時間版・dmin、v2: 時間版・dsm/dcv）。
+  `_v3`、2026-09-21 に店舗レイヤを公開可能版（Overture＋許可 124,970店）へ替えて
+  **`_v4` に版替え**。旧版は戻せるように残してある
+  （v1: 時間版・dmin、v2: 時間版・dsm/dcv、v3: 道路距離 m・ATP⑪ 122,249店）。
   旧 Xserver（`shiworks2.xsrv.jp`）は 2026-09-06 に R2 へ移行済みなので**使わない**。
   手元からは AWS CLI のプロファイル `r2-shiworks` で入れる（手順・CORS・注意点は
   `C:/Users/yshiw/Documents/xserver-cleanup/R2-STRUCTURE.md`）。

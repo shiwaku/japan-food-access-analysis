@@ -328,8 +328,8 @@
     <div class="legend-item"><div class="legend-dot" style="background:#b45309"></div>食肉・鮮魚・野菜果実</div>
   </div>
   <div style="margin-top:8px;font-size:0.72rem;color:#999;line-height:1.45;">
-    <b style="color:#666">対象店舗</b>：全国 122,249店。食料品スーパー・百貨店・総合スーパー 32,696、
-    コンビニ 59,826、ドラッグストア 19,659、食肉・鮮魚・野菜果実小売業 10,068<br>
+    <b style="color:#666">対象店舗</b>：全国 124,970店。食料品スーパー・百貨店・総合スーパー 37,598、
+    コンビニ 63,441、ドラッグストア 19,245、食肉・鮮魚・野菜果実小売業 4,686<br>
     <b style="color:#666">距離</b>：メッシュ重心から店舗までの道路ネットワーク上の最短距離（Dijkstra）。直線距離ではなく、歩行速度・所要時間も使わない<br>
     ※ 条件は距離だけ。自動車の利用可否は掛けていないので「アクセス困難人口」ではない。
   </div>
@@ -363,15 +363,18 @@
       <dt>データ出典</dt>
       <dd>人口: 令和2年国勢調査 125mメッシュ（総務省統計局・e-Stat）<br>
           店舗: <a href="https://github.com/shiwaku/japan-food-store-master" target="_blank" rel="noopener">japan-food-store-master</a>
-          ATP基準＋許可⑪（122,249店：スーパー 32,696・コンビニ 59,826・ドラッグストア 19,659・生鮮 10,068）<br>
+          （124,970店：スーパー 37,598・コンビニ 63,441・ドラッグストア 19,245・生鮮 4,686）<br>
+          　└ © <a href="https://overturemaps.org/" target="_blank" rel="noopener">Overture Maps Foundation</a>（CDLA-Permissive-2.0）97,600店<br>
+          　└ <a href="https://food.japan-facilities.com/" target="_blank" rel="noopener">Japan Food Facilities</a>
+          （自治体・厚生労働省が公開する食品営業許可オープンデータを加工して作成）27,370店<br>
           正解値: 農林水産政策研究所 食料品アクセスマップ 表5</dd>
       <dt>条件</dt>
       <dd><b>距離だけ</b>。自動車の利用可否も年齢も掛けていないので、
           農水省の「アクセス困難人口」ではない。</dd>
       <dt>妥当性</dt>
       <dd>地方部（高齢者密度&lt;1,500人/km²・1,586市区町村）では公表値と整合する
-          （比&gt;1 は 3.2%）。
-          <b>都市部では農水省の公表値を再現できない</b>（比&gt;1 が 79.9%）。
+          （比&gt;1 は 1.2%）。
+          <b>都市部では農水省の公表値を再現できない</b>（比&gt;1 が 61.0%）。
           農水省の推計は確率版（メッシュ内位置の面積比）と判明しており構造が違う。
           都市部の色は参考値として見ること。</dd>
     </dl>
@@ -385,8 +388,8 @@ const IS_LOCAL = (location.hostname === "localhost" || location.hostname === "12
 // いずれも 2026-09-20）。PMTiles は Range で読むので、上書きすると Cloudflare のキャッシュに
 // 新旧の断片が混ざる。
 const PMTILES_URL = IS_LOCAL
-  ? "../output/food_access_125m_v3.pmtiles"
-  : "https://shi-works.com/pmtiles/japan-food-access-analysis/food_access_125m_v3.pmtiles";
+  ? "../output/food_access_125m_v4.pmtiles"
+  : "https://shi-works.com/pmtiles/japan-food-access-analysis/food_access_125m_v4.pmtiles";
 
 // ── PMTiles プロトコル登録 ──
 const protocol = new pmtiles.Protocol();
@@ -425,13 +428,13 @@ const catCodeExpr = () => ["case",
   1
 ];
 // 集計パネルの数値。02_validate_access_difficulty.py の出力から手で写す
-// （ATP⑪ 122,249店・47県・65歳以上 35,306,031人＝道路距離が定義できるメッシュの計。
-// 2026-09-20 道路距離 m 版）。**再集計したらここも更新すること。**
-//   sm  = 分母 − S1圏外（24,276,339）   cv = S1圏外 − S4圏外   out = S4圏外（15,058,980）
+// （Overture＋許可 124,970店・47県・65歳以上 35,306,031人＝道路距離が定義できるメッシュの計。
+// 2026-09-21 公開可能レイヤ版）。**再集計したらここも更新すること。**
+//   sm  = 分母 − S1圏外（23,997,021）   cv = S1圏外 − S4圏外   out = S4圏外（15,237,604）
 const STATS = {
-  sm: "1,103万人（31.2%）",
-  cv: "922万人（26.1%）",
-  out: "1,506万人（42.7%）",
+  sm: "1,131万人（32.0%）",
+  cv: "876万人（24.8%）",
+  out: "1,524万人（43.2%）",
 };
 const CAT_LABEL = {
   0: "スーパーが500m以内",
