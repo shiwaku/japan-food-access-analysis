@@ -260,15 +260,16 @@
         min-width: 52px; width: 52px; height: auto;
         justify-content: center; text-align: center;
         padding: 6px 0; box-sizing: border-box;
-        top: max(172px, calc(env(safe-area-inset-top) + 162px));
+        top: max(132px, calc(env(safe-area-inset-top) + 122px));
         right: 14px; border-radius: 8px;
         box-shadow: 0 2px 8px rgba(0,0,0,0.1);
         font-size: 0.82rem;
       }
+      /* 縦積みの順は 集計(52) → 3D(92) → 店舗(132) → 現在地(172) */
       #geolocate-toggle {
         display: flex; align-items: center;
         position: absolute;
-        top: max(132px, calc(env(safe-area-inset-top) + 122px));
+        top: max(172px, calc(env(safe-area-inset-top) + 162px));
         right: 14px; z-index: 20;
         background: rgba(255,255,252,0.94);
         border: 1px solid rgba(0,0,0,0.1);
@@ -276,6 +277,14 @@
         font-size: 1rem; cursor: pointer; backdrop-filter: blur(6px);
         box-shadow: 0 2px 8px rgba(0,0,0,0.1);
         line-height: 1.4;
+      }
+      /* 4つの大きさを揃える（padding と display の違いで 29〜36px にばらついていた）。
+         **`#map-controls button` に負けないよう id を2つ重ねる**。 */
+      #legend-toggle, #stats-toggle,
+      #map-controls #view-toggle, #map-controls #stores-toggle, #geolocate-toggle {
+        width: 52px; min-width: 52px; height: 32px; padding: 0;
+        display: flex; align-items: center; justify-content: center;
+        box-sizing: border-box;
       }
     }
 
