@@ -4,6 +4,28 @@
 市区町村別に推計する。農水省「[食料品アクセス](https://www.maff.go.jp/j/shokusan/eat/access_genjo.html)」の
 公表値は**突合の相手**として使う。
 
+**地図: https://shiwaku.github.io/japan-food-access-analysis/**
+
+## ★ 店舗レイヤは2系統ある（2026-09-21）
+
+| レイヤ | 店舗数 | 用途 | 公開 |
+|---|---:|---|---|
+| **公開可能**（Overture Places ＋ 食品営業許可オープンデータ） | 124,970 | **地図と公開値**。全行再配布可 | 可 |
+| ATP基準＋許可⑪ | 122,249 | 内部の最良推計（下の「推計結果」はこちら） | **不可** |
+
+ATP 基準マスターは自前クロール38チェーン 47,005店（38%）が**再配布不可**で公開物に載せられない。
+再配布可のソースだけで組み直したところ **47県・地方部の指標はほぼ同等**だったので、
+地図と公開値は公開可能レイヤで作る。
+
+| 領域 | 指標 | ATP⑪ 122,249店 | 公開可能 124,970店 |
+|---|---|---:|---:|
+| 地方部（密度<1,500） | 相関 r | 0.2472 | **0.2490** |
+| 地方部 | 圏外率（65歳以上） | 56.32% | 56.50% |
+| 地方部 | 比>1 の市区町村 | 21 | **19** |
+
+**数字を引くときはどちらのレイヤのものか必ず確かめること。**
+経緯と作り方は japan-food-store-master の `docs/sources/検証_公開可能マスター_Overture_OSM_許可.md`。
+
 ## ★ 推計するのは距離条件だけ
 
 農水省の食料品アクセス困難人口の定義は3条件である。
@@ -195,16 +217,24 @@ GeoJSON→tippecanoe→PMTiles の流れ・ビューワの作りはあちらに�
 （`docs/index.html` + `docs/pale.json` + `serve.py`、住所検索・2D/3D・ボトムシート）。
 
 区分は**道路距離だけ**で作る。緑／橙の切り分けはスーパー（S1）までの道路距離。
+**地図の店舗レイヤは公開可能版（124,970店）**なので、下の数値は上の「推計結果」（ATP⑪）とは違う。
 
-| 区分 | メッシュ | 65歳以上 | 割合 |
-|---|---:|---:|---:|
-| 🟢 スーパーまで500m以内 | 371,303 | 1,103万人 | 31.2% |
-| 🟠 スーパーは遠いが他の店は500m以内 | 452,246 | 922万人 | 26.1% |
-| 🔴 **500m圏外** | 1,990,900 | **1,507万人** | **42.7%** |
+| 区分 | メッシュ | 総人口 | 割合 | 65歳以上 | 割合 |
+|---|---:|---:|---:|---:|---:|
+| 🟢 スーパーまで500m以内 | 383,032 | 4,561万人 | 36.2% | 1,131万人 | 32.0% |
+| 🟠 スーパーは遠いが他の店は500m以内 | 435,816 | 3,336万人 | 26.5% | 876万人 | 24.8% |
+| 🔴 **500m圏外** | 1,993,748 | **4,709万人** | **37.4%** | **1,524万人** | **43.2%** |
+
+集計パネルは**総人口が主**。年齢で絞るのは本推計の前提ではないので、65歳以上は参考の1行だけ出す。
 
 > **これは「500m圏外」であって「アクセス困難」ではない。** 農水省の困難人口は
 > 「500m以上 **かつ** 自動車の利用が困難」で公表値は全国904万人（25.6%）。
 > このマップは**距離条件だけ**を表示している。
+
+**店舗の点も公開している**（ズーム10以上・業態別の色・クリックで店名と出典）。
+メッシュとは別タイルで `pmtiles/japan-food-store-master/food_store_master_public_v1.pmtiles`
+（18.5MB・レイヤ名 `stores`）。ポップアップに元データの公開元を出すのは、
+許可データが CC BY 系で**帰属表示が条件**のため。
 
 道路距離の算出方法は姉妹リポジトリ **japan-transit-desert-analysis-125** を踏襲している
 （`scripts/04_road_distance.py`）。**区分はタイルに焼いていない**（`out_d` と `out_sm` から
@@ -221,10 +251,11 @@ python serve.py 8080                    # http://localhost:8080/docs/ （Range �
 
 PMTiles（約400MB）と GeoJSONL は `.gitignore`。公開用は Cloudflare R2（配信ドメイン `shi-works.com`）に置く。
 `docs/index.html` の `PMTILES_URL` が localhost では `../output/` を、それ以外では
-`https://shi-works.com/pmtiles/japan-food-access-analysis/food_access_125m.pmtiles` を見る。
+`https://shi-works.com/pmtiles/japan-food-access-analysis/food_access_125m_v4.pmtiles` を見る。
+**差し替えは同じキーに上書きせず版を上げる**（Range 配信なので上書きすると新旧の断片が混ざる）。
 
 ```bash
-aws s3 cp output/food_access_125m.pmtiles   s3://shi-works/pmtiles/japan-food-access-analysis/food_access_125m.pmtiles   --profile r2-shiworks --content-type application/octet-stream --cache-control "public, max-age=3600"
+aws s3 cp output/food_access_125m_v4.pmtiles   s3://shi-works/pmtiles/japan-food-access-analysis/food_access_125m_v4.pmtiles   --profile r2-shiworks
 ```
 
 ## 使い方
@@ -241,11 +272,11 @@ python scripts/01_fetch_mesh_population.py 高知県 島根県 宮城県
 
 # 3. 道路距離を出す。**距離判定はここが唯一の出所**
 #    道路ネットワークはリポジトリ外（NETWORK_DIR で指定・入れ子4回で全国180秒）
-FOOD_STORES=input/food_store_master_atp_super.parquet \
+FOOD_STORES=input/food_store_master_public_noosm.parquet \
     python scripts/04_road_distance.py
 
 # 4. 500m圏外人口を出して農水省公表値と突合（店舗レイヤは読まない）
-OUT_SUFFIX=_ATP⑪ \
+OUT_SUFFIX=_公開可能 \
     python scripts/02_validate_access_difficulty.py 高知県 島根県 宮城県
 ```
 
@@ -292,7 +323,12 @@ ROAD_DIST=data/road_tmp.parquet OUT_SUFFIX=_実験 python scripts/02_validate_ac
 | 125mメッシュ人口 | e-Stat 統計GIS 令和2年国勢調査 `T001225` | 政府標準利用規約 |
 | 小地域境界 | e-Stat 統計GIS 令和2年国勢調査 小地域 | 政府標準利用規約 |
 | 食料品アクセス困難人口（表5） | 農林水産省 農林水産政策研究所 | 政府標準利用規約 |
-| 食料品店 POI | [japan-food-store-master](https://github.com/shiwaku/japan-food-store-master) | 同リポジトリの記載による（**OSM 由来分は ODbL 継承あり**） |
+| 食料品店 POI（公開版） | [japan-food-store-master](https://github.com/shiwaku/japan-food-store-master) — Overture Places 97,600店 ＋ 食品営業許可 27,370店 | CDLA-Permissive-2.0 ／ CC BY 系・公共データ利用規約（**全行再配布可**） |
+| 食料品店 POI（内部の最良推計） | 同上 — ATP基準＋許可⑪ 122,249店 | **自前クロール分は再配布不可**。公開物に使わない |
+
+公開している地図と店舗タイルは**再配布可のソースだけ**で作ってある。
+OSM も外してあるので **ODbL の継承は無い**。出典表示は
+© Overture Maps Foundation と Japan Food Facilities（各自治体・厚生労働省）。
 
 コードは MIT（`LICENSE`）。**店舗レイヤは本リポジトリに含めない**（`input/` は .gitignore）。
-再配布可否は元リポジトリのライセンス記載に従うこと。
+**公開物に ATP の自前クロール由来を混ぜないこと。**
