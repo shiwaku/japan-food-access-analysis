@@ -295,6 +295,20 @@ OUT_SUFFIX=_ATP⑪ python scripts/02_validate_access_difficulty.py 高知県 島
   ポップアップは「最寄りスーパーまで／最寄りコンビニ等まで」の2行（2026-09-20）。
   `dmin`（全カテゴリの最寄り分）は S1 と SO の近い方と同じなので**廃止**。
   `out_a` / `out_c` / `sm` / `cv` / `dg` / `fr` も**廃止した**。
+- **集計パネルは総人口が主**（2026-09-21）。年齢で絞るのは本推計の前提ではないので、
+  65歳以上は「うち65歳以上」の1行だけにしてある。
+- **集計パネルとポップアップの文言は削った**（2026-09-21）。消したのは
+  赤い注意ボックス・「妥当性」・「条件」・「正解値（農水省 表5）」・
+  「直線距離でもメッシュ単位の存否でもない」・「Multi-source Dijkstra…」・
+  ポップアップの「道路距離500m判定：圏外」。**同じ趣旨は凡例の ※ 行に残してある**ので、
+  そこは消さないこと（距離条件だけであることの断り）。
+- **ポップアップはクリック/タップだけ**（2026-09-21）。ホバーでは出さない。
+  ホバーはカーソルを pointer にするだけで、`pinned` フラグは不要になったので消した。
+- **右上のトグル（3D・店舗）は `#map-controls` にまとめてある**。個別に `right: 308px` と
+  直書きしていたら**集計パネルの下に潜って 3D が見えなくなっていた**。位置は
+  `--search-w`（住所検索パネル幅）からの算術で置き、大きさも `#map-controls button` で揃える。
+  モバイルの上書きは **`#map-controls #view-toggle` と id を2つ重ねる**こと
+  （`#map-controls button` は id+要素で詳細度が高く、`#stores-toggle` 単独では負ける）。
 - 集計パネルの数値は `STATS` にハードコードしてある。**再集計したら更新すること**。
   **凡例と出典の店舗数（合計 122,249・業態別4つ）もハードコード**。店舗レイヤを差し替えたら
   `select cat, count(*) from '<FOOD_STORES>' group by 1` で出し直して両方直す。
@@ -325,12 +339,17 @@ OUT_SUFFIX=_ATP⑪ python scripts/02_validate_access_difficulty.py 高知県 島
   後続が全部ブロックされて地図が固まる。
 - ローカル確認は `python serve.py 8080` → http://localhost:8080/docs/
   （PMTiles は Range リクエストが要るので `python -m http.server` では不可）。
-- **店舗の点はローカル開発時だけ表示できる**（2026-09-20）。`serve.py` が `/dev/stores.geojson` で
-  `FOOD_STORES`（既定 `input/food_store_master_atp_super.parquet`）を GeoJSON にして返し、
-  ビューワは `location.hostname` が localhost のときだけこれを読んで「店舗」ボタンを出す
-  （z10 以上・業態別の色・クリックで店名）。**公開ページには一切出ない**。店舗レイヤは
-  japan-food-store-master の成果物で再配布可否が元 repo 依存なので、公開用タイルにも焼かない。
-  別の店舗レイヤを見たいときは `FOOD_STORES=input/xxx.parquet python serve.py 8080`。
+- **店舗の点は公開ページにも出る**（2026-09-21）。店舗レイヤを全行再配布可の
+  Overture＋食品営業許可（124,970店）に替えたため。配信は**別タイル**
+  `https://shi-works.com/pmtiles/japan-food-store-master/food_store_master_public_v1.pmtiles`
+  （レイヤ名 `stores` / 属性 `cat` `name` `src` `sources` `license`）で、
+  メッシュのタイルには焼いていない。ビューワの `STORES_URL` / `STORES_COUNT` で指す。
+  生成は japan-food-store-master の `scripts/build_public_master_pmtiles.sh`。
+  **ポップアップに `sources` を出す**（CC BY 系は帰属表示が条件。無い行は Overture 表記）。
+  ローカルで `serve.py` が動いていて `/dev/stores.geojson` が読めるときは**そちらを優先**する
+  （既定 `input/food_store_master_public_noosm.parquet`）。別の店舗レイヤを見たいときは
+  `FOOD_STORES=input/xxx.parquet python serve.py 8080`。
+  ⚠ 2026-09-20 まではローカル専用だった（自前クロール由来が38%あり再配布不可だったため）。
 
 ## 落とし穴・環境メモ
 
