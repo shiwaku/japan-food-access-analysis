@@ -324,10 +324,10 @@
   <div class="legend-item"><div class="legend-dot" style="background:#f43f5e"></div>どの店も500m超</div>
   <div id="stores-legend">
     <div style="font-size:0.72rem;color:#666;margin-bottom:2px"><b>店舗（ズーム10以上・124,970店）</b></div>
-    <div class="legend-item"><div class="legend-dot" style="background:#1d4ed8"></div>スーパー・百貨店・総合スーパー</div>
-    <div class="legend-item"><div class="legend-dot" style="background:#7c3aed"></div>コンビニ</div>
-    <div class="legend-item"><div class="legend-dot" style="background:#0f766e"></div>ドラッグストア</div>
-    <div class="legend-item"><div class="legend-dot" style="background:#b45309"></div>食肉・鮮魚・野菜果実</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#E23B3B"></div>スーパー・百貨店・総合スーパー</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#2477E0"></div>コンビニ</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#2E9E4F"></div>ドラッグストア</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#FF7A1A"></div>食肉・鮮魚・野菜果実</div>
   </div>
   <div style="margin-top:8px;font-size:0.72rem;color:#999;line-height:1.45;">
     <b style="color:#666">対象店舗</b>：全国 124,970店。食料品スーパー・百貨店・総合スーパー 37,598、
@@ -382,6 +382,18 @@ const STORES_COUNT = 124970;
 const protocol = new pmtiles.Protocol();
 maplibregl.addProtocol("pmtiles", protocol.tile);
 
+// ── 店舗アイコンのスプライト ──
+// japan-food-store-master の viewer と同じ shiwaku/custom-smartmap-sprite（MIT / Geolonia）を使う。
+// **MapLibre は sprite を配列で複数持てるが、接頭辞なしで引けるのは id 'default' だけ。**
+// 地理院スタイルはアイコンを接頭辞なしで参照しているので 'default' に据え、
+// 追加分は `smartmap:<アイコン名>` で引く。
+const FOOD_SPRITE_URL = "https://shiwaku.github.io/custom-smartmap-sprite/sprite";
+const FOOD_SPRITE_ID = "smartmap";
+const PIN_MINZOOM = 13;
+
+// **このスクリプトは module ではないのでトップレベル await は使えない**（構文エラーで
+// 全体が動かなくなる）。スタイルを fetch して書き換えるのではなく、読み込み後に
+// `map.setSprite()` でスプライトを足す。
 const map = new maplibregl.Map({
   container: "map",
   style: "./pale.json",
@@ -520,8 +532,24 @@ map.on("load", () => {
     popup.setLngLat(e.lngLat).setHTML(makePopupHTML(e.features[0].properties)).addTo(map);
   });
 
-  setupStores(popup);
+  addFoodSprite().then(() => setupStores(popup));
 });
+
+// 地理院スタイルの sprite（文字列）を配列にして店舗アイコンを足す。
+// 失敗しても丸点だけで動くように、例外は握って続行する。
+async function addFoodSprite() {
+  try {
+    const cur = map.getStyle().sprite;
+    if (typeof map.setSprite !== "function") throw new Error("setSprite が無い");
+    if (typeof cur !== "string") return;   // 既に配列なら何もしない
+    await map.setSprite([
+      { id: "default", url: cur },
+      { id: FOOD_SPRITE_ID, url: FOOD_SPRITE_URL },
+    ]);
+  } catch (err) {
+    console.warn("店舗アイコンのスプライトを足せませんでした（丸点のみで表示します）:", err);
+  }
+}
 
 // ── 店舗レイヤ ──
 // 公開時は STORES_URL の PMTiles（レイヤ名 stores）。ローカルで serve.py を使っているときは
@@ -529,11 +557,13 @@ map.on("load", () => {
 // **別の店舗レイヤを見たいときは FOOD_STORES=input/xxx.parquet python serve.py** で差し替える。
 // 2026-09-20 まではローカル専用だった（自前クロール由来が38%あり再配布不可だったため）。
 // 2026-09-21 に Overture＋食品営業許可の全行再配布可レイヤへ替えたので公開している。
+// 色は custom-smartmap-sprite のアイコン色に合わせる（凡例・丸点・ポップアップで共通）。
+// **アイコンの色を変えたらここも直すこと。**
 const STORE_CAT = {
-  supermarket: { label: "スーパー・百貨店・総合スーパー", color: "#1d4ed8" },
-  convenience: { label: "コンビニ",                     color: "#7c3aed" },
-  drugstore:   { label: "ドラッグストア",               color: "#0f766e" },
-  fresh_food:  { label: "食肉・鮮魚・野菜果実小売業",   color: "#b45309" },
+  supermarket: { label: "スーパー・百貨店・総合スーパー", color: "#E23B3B", icon: "food-supermarket" },
+  convenience: { label: "コンビニ",                     color: "#2477E0", icon: "food-convenience" },
+  drugstore:   { label: "ドラッグストア",               color: "#2E9E4F", icon: "food-drugstore" },
+  fresh_food:  { label: "食肉・鮮魚・野菜果実小売業",   color: "#FF7A1A", icon: "food-fresh" },
 };
 async function setupStores(popup) {
   const btn = document.getElementById("stores-toggle");
@@ -560,12 +590,15 @@ async function setupStores(popup) {
     "drugstore",   STORE_CAT.drugstore.color,
     "fresh_food",  STORE_CAT.fresh_food.color,
     "#444"];
+  const srcLayer = geojson ? {} : { "source-layer": "stores" };
+  // z10〜13 は丸点、z13 以上はピン（japan-food-store-master の viewer と同じ切り分け）
   map.addLayer({
     id: "stores-pt",
     type: "circle",
     source: "stores",
-    ...(geojson ? {} : { "source-layer": "stores" }),
+    ...srcLayer,
     minzoom: 10,
+    maxzoom: PIN_MINZOOM,
     layout: { visibility: "none" },
     paint: {
       "circle-color": color,
@@ -573,6 +606,25 @@ async function setupStores(popup) {
       "circle-stroke-color": "#fff",
       "circle-stroke-width": ["interpolate", ["linear"], ["zoom"], 10, 0.6, 14, 1.5],
       "circle-opacity": 0.95,
+    }
+  });
+  map.addLayer({
+    id: "stores-pin",
+    type: "symbol",
+    source: "stores",
+    ...srcLayer,
+    minzoom: PIN_MINZOOM,
+    layout: {
+      visibility: "none",
+      "icon-image": ["match", ["get", "cat"],
+        ...Object.entries(STORE_CAT).flatMap(([k, v]) => [k, `${FOOD_SPRITE_ID}:${v.icon}`]),
+        `${FOOD_SPRITE_ID}:food-grocery`],
+      // スプライトは 75×90px のピン。等倍だと大きいので縮めて足元を座標に合わせる
+      "icon-size": ["interpolate", ["linear"], ["zoom"], PIN_MINZOOM, 0.4, 16, 0.56],
+      "icon-anchor": "bottom",
+      // 重なりは衝突判定に任せて間引く（密集地でピンが潰れるのを防ぐ）
+      "icon-allow-overlap": false,
+      "icon-padding": 0,
     }
   });
   const storeHTML = (p) => {
@@ -587,15 +639,19 @@ async function setupStores(popup) {
     </div>`;
   };
   // 店舗のクリックはメッシュのクリックより後に登録されるので、同じ点で両方発火しても店舗が勝つ
-  map.on("click", "stores-pt", (e) => {
-    popup.setLngLat(e.features[0].geometry.coordinates).setHTML(storeHTML(e.features[0].properties)).addTo(map);
-  });
-  map.on("mouseenter", "stores-pt", () => { map.getCanvas().style.cursor = "pointer"; });
-  map.on("mouseleave", "stores-pt", () => { map.getCanvas().style.cursor = ""; });
+  for (const id of ["stores-pt", "stores-pin"]) {
+    map.on("click", id, (e) => {
+      popup.setLngLat(e.features[0].geometry.coordinates).setHTML(storeHTML(e.features[0].properties)).addTo(map);
+    });
+    map.on("mouseenter", id, () => { map.getCanvas().style.cursor = "pointer"; });
+    map.on("mouseleave", id, () => { map.getCanvas().style.cursor = ""; });
+  }
 
   let on = false;
   const apply = () => {
-    map.setLayoutProperty("stores-pt", "visibility", on ? "visible" : "none");
+    for (const id of ["stores-pt", "stores-pin"]) {
+      map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
+    }
     btn.classList.toggle("on", on);
     lgd.classList.toggle("on", on);
   };

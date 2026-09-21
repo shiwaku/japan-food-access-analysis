@@ -342,6 +342,18 @@ OUT_SUFFIX=_ATP⑪ python scripts/02_validate_access_difficulty.py 高知県 島
   後続が全部ブロックされて地図が固まる。
 - ローカル確認は `python serve.py 8080` → http://localhost:8080/docs/
   （PMTiles は Range リクエストが要るので `python -m http.server` では不可）。
+- **店舗は z13 以上でピン（アイコン）、z10〜13 は丸点**（2026-09-21）。アイコンは
+  japan-food-store-master の viewer と同じ
+  [custom-smartmap-sprite](https://github.com/shiwaku/custom-smartmap-sprite)（MIT / Geolonia）。
+  **MapLibre の複数スプライトは、接頭辞なしで引けるのが id `default` だけ**なので、
+  地理院スタイルを `default` に据え、追加分は `smartmap:<アイコン名>` で引く。
+  読み込み後に `map.setSprite()` で配列に差し替える（`addFoodSprite()`）。
+  **凡例の色はアイコンの色と手動同期**（`STORE_CAT` の color）。アイコン側を変えたら直すこと。
+- **`docs/index.html` のスクリプトは module ではない**。`<script>` のままなので
+  **トップレベル `await` は構文エラーになり、スクリプト全体が動かなくなる**（地図が
+  「読み込んでいます」から進まない）。スタイルを fetch して書き換える実装で踏んだ。
+  非同期が要るときは関数の中に閉じ込めること。`node --check` で確かめるなら **`.mjs` ではなく
+  `.js` として**チェックする（.mjs だと module 扱いでトップレベル await が通ってしまう）。
 - **店舗の点は公開ページにも出る**（2026-09-21）。店舗レイヤを全行再配布可の
   Overture＋食品営業許可（124,970店）に替えたため。配信は**別タイル**
   `https://shi-works.com/pmtiles/japan-food-store-master/food_store_master_public_v1.pmtiles`
