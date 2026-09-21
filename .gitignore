@@ -25,3 +25,6 @@ Thumbs.db
 # PMTiles / GeoJSONL は大容量（PMTiles は外部ホスティング）
 output/*.pmtiles
 output/*.geojsonl
+
+# Claude Code のローカル設定（各自の許可設定なので共有しない）
+.claude/
