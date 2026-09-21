@@ -325,12 +325,17 @@ OUT_SUFFIX=_ATP⑪ python scripts/02_validate_access_difficulty.py 高知県 島
   後続が全部ブロックされて地図が固まる。
 - ローカル確認は `python serve.py 8080` → http://localhost:8080/docs/
   （PMTiles は Range リクエストが要るので `python -m http.server` では不可）。
-- **店舗の点はローカル開発時だけ表示できる**（2026-09-20）。`serve.py` が `/dev/stores.geojson` で
-  `FOOD_STORES`（既定 `input/food_store_master_atp_super.parquet`）を GeoJSON にして返し、
-  ビューワは `location.hostname` が localhost のときだけこれを読んで「店舗」ボタンを出す
-  （z10 以上・業態別の色・クリックで店名）。**公開ページには一切出ない**。店舗レイヤは
-  japan-food-store-master の成果物で再配布可否が元 repo 依存なので、公開用タイルにも焼かない。
-  別の店舗レイヤを見たいときは `FOOD_STORES=input/xxx.parquet python serve.py 8080`。
+- **店舗の点は公開ページにも出る**（2026-09-21）。店舗レイヤを全行再配布可の
+  Overture＋食品営業許可（124,970店）に替えたため。配信は**別タイル**
+  `https://shi-works.com/pmtiles/japan-food-store-master/food_store_master_public_v1.pmtiles`
+  （レイヤ名 `stores` / 属性 `cat` `name` `src` `sources` `license`）で、
+  メッシュのタイルには焼いていない。ビューワの `STORES_URL` / `STORES_COUNT` で指す。
+  生成は japan-food-store-master の `scripts/build_public_master_pmtiles.sh`。
+  **ポップアップに `sources` を出す**（CC BY 系は帰属表示が条件。無い行は Overture 表記）。
+  ローカルで `serve.py` が動いていて `/dev/stores.geojson` が読めるときは**そちらを優先**する
+  （既定 `input/food_store_master_public_noosm.parquet`）。別の店舗レイヤを見たいときは
+  `FOOD_STORES=input/xxx.parquet python serve.py 8080`。
+  ⚠ 2026-09-20 まではローカル専用だった（自前クロール由来が38%あり再配布不可だったため）。
 
 ## 落とし穴・環境メモ
 
