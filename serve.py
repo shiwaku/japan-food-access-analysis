@@ -9,7 +9,7 @@
 import json, os, sys, threading
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 
-FOOD_STORES = os.environ.get("FOOD_STORES", "input/food_store_master_atp_super.parquet")
+FOOD_STORES = os.environ.get("FOOD_STORES", "input/food_store_master_public_noosm.parquet")
 
 _stores_cache = {}
 _stores_lock = threading.Lock()
